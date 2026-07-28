@@ -211,6 +211,17 @@ class PhishingService:
                         binding_status = "impersonation"
                         offending_domains = [d for d in offending if d not in LEGITIMATE_DOMAINS]
 
+        # Check for SEBI registration number mismatch in text (e.g. INZ000032623 vs official INZ000031633)
+        text_reg_matches = re.findall(r'IN[ZBFPA0-9]{8,10}', text, re.IGNORECASE)
+
+        if reg_res.found and text_reg_matches:
+            expected_reg = (reg_res.registration_number or "").strip().upper()
+            found_reg = text_reg_matches[0].strip().upper()
+            if expected_reg and found_reg != expected_reg:
+                binding_status = "impersonation"
+                offending_domains.append(f"Fake Reg: {found_reg}")
+                details.append(f"SEBI Registration Mismatch: Text has '{found_reg}', official for '{reg_res.matched_entity}' is '{expected_reg}'")
+
         entity_binding = EntityBinding(
             status=binding_status,
             entity=reg_res.matched_entity if reg_res.found else None,
