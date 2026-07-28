@@ -1,0 +1,74 @@
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ── Virtual Environment ──────────────────────────────────────────────────────
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+
+# ── Environment Variables ────────────────────────────────────────────────────
+.env
+backend/.env
+frontend/.env.local
+*.env.local
+
+# ── 🔐 CRITICAL: Cryptographic Keys — NEVER COMMIT THESE ────────────────────
+backend/app/crypto/keys/entities/*.pem
+backend/app/crypto/keys/entities/*.key
+backend/app/crypto/keys/pramaan_ca.pem
+backend/app/crypto/keys/pramaan_ca.key
+!backend/app/crypto/keys/entities/.gitkeep
+
+# ── ML Model Weights ─────────────────────────────────────────────────────────
+backend/app/ml/aasist/weights/*.pth
+backend/app/ml/aasist/weights/*.pt
+backend/app/ml/rawnet2/weights/*.pth
+backend/app/ml/rawnet2/weights/*.pt
+backend/app/ml/deepfake/weights/*.pth
+backend/app/ml/deepfake/weights/*.pt
+!backend/app/ml/*/weights/.gitkeep
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+backend/logs/*.log
+backend/logs/*.jsonl
+!backend/logs/.gitkeep
+
+# ── Upload Directory ─────────────────────────────────────────────────────────
+/tmp/pramaan_uploads/
+
+# ── Node.js ───────────────────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+
+# ── pytest ───────────────────────────────────────────────────────────────────
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ── Security Scanner Outputs ─────────────────────────────────────────────────
+bandit-report.json
+pip-audit-report.json

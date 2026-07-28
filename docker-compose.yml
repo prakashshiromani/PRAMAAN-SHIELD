@@ -1,0 +1,107 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - MONGO_URI=mongodb://pramaan_app:${MONGO_APP_PASSWORD}@mongo:27017/pramaan_shield?authSource=pramaan_shield
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}
+      - IP_HMAC_SALT=${IP_HMAC_SALT}
+      - UPLOAD_DIR=/tmp/pramaan_uploads
+    volumes:
+      - ./backend/app/ml/aasist/weights:/app/app/ml/aasist/weights:ro
+      - ./backend/app/ml/rawnet2/weights:/app/app/ml/rawnet2/weights:ro
+      - ./backend/app/ml/deepfake/weights:/app/app/ml/deepfake/weights:ro
+      - ./backend/app/crypto/keys:/app/app/crypto/keys:ro
+      - ./backend/logs:/app/logs
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - pramaan_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - pramaan_net
+
+  mongo:
+    image: mongo:7.0
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: pramaan_shield
+    volumes:
+      - mongo_data:/data/db
+      - ./backend/mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - pramaan_net
+
+  redis:
+    image: redis:7.2-alpine
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --appendonly yes
+      --save 60 1000
+      --rename-command CONFIG ""
+      --rename-command FLUSHALL ""
+      --rename-command FLUSHDB ""
+      --rename-command DEBUG ""
+      --rename-command MODULE ""
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - pramaan_net
+
+volumes:
+  mongo_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  pramaan_net:
+    driver: bridge

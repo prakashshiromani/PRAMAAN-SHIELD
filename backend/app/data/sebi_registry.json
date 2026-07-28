@@ -1,0 +1,202 @@
+[
+  {
+    "entity_name": "SEBI",
+    "registration_number": "REGULATOR",
+    "category": "Regulator",
+    "sebi_registered": true,
+    "official_domains": ["sebi.gov.in", "scores.gov.in"],
+    "official_emails": ["sebi@sebi.gov.in", "complaints@sebi.gov.in"]
+  },
+  {
+    "entity_name": "BSE Limited",
+    "registration_number": "BSE",
+    "category": "Exchange",
+    "sebi_registered": true,
+    "official_domains": ["bseindia.com", "bseplus.bseindia.com"],
+    "official_emails": ["corp.relations@bseindia.com"]
+  },
+  {
+    "entity_name": "National Stock Exchange of India Limited",
+    "registration_number": "NSE",
+    "category": "Exchange",
+    "sebi_registered": true,
+    "official_domains": ["nseindia.com", "nseindianow.com"],
+    "official_emails": ["investorservicecell@nse.co.in"]
+  },
+  {
+    "entity_name": "MCX — Multi Commodity Exchange of India",
+    "registration_number": "MCX",
+    "category": "Exchange",
+    "sebi_registered": true,
+    "official_domains": ["mcxindia.com"],
+    "official_emails": ["info@mcxindia.com"]
+  },
+  {
+    "entity_name": "Zerodha Broking Limited",
+    "registration_number": "INZ000031633",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["zerodha.com", "kite.zerodha.com", "console.zerodha.com"],
+    "official_emails": ["support@zerodha.com", "notice@zerodha.com"]
+  },
+  {
+    "entity_name": "Groww Investments Private Limited",
+    "registration_number": "INZ000177137",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["groww.in", "app.groww.in"],
+    "official_emails": ["support@groww.in"]
+  },
+  {
+    "entity_name": "Angel One Limited",
+    "registration_number": "INZ000161534",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["angelone.in", "trade.angelone.in"],
+    "official_emails": ["support@angelone.in"]
+  },
+  {
+    "entity_name": "Upstox (RKSV Securities India Pvt Ltd)",
+    "registration_number": "INZ000185137",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["upstox.com", "pro.upstox.com"],
+    "official_emails": ["support@upstox.com"]
+  },
+  {
+    "entity_name": "ICICI Securities Limited",
+    "registration_number": "INZ000183631",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["icicidirect.com", "secure.icicidirect.com"],
+    "official_emails": ["helpdesk@icicidirect.com"]
+  },
+  {
+    "entity_name": "HDFC Securities Limited",
+    "registration_number": "INZ000186937",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["hdfcsec.com", "trade.hdfcsec.com"],
+    "official_emails": ["customercare@hdfcsec.com"]
+  },
+  {
+    "entity_name": "Kotak Securities Limited",
+    "registration_number": "INZ000200137",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["kotaksecurities.com", "kotakneo.com"],
+    "official_emails": ["service.securities@kotak.com"]
+  },
+  {
+    "entity_name": "5paisa Capital Limited",
+    "registration_number": "INZ000010231",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["5paisa.com", "trade.5paisa.com"],
+    "official_emails": ["support@5paisa.com"]
+  },
+  {
+    "entity_name": "SBI Securities (SBI Cap Securities Ltd)",
+    "registration_number": "INZ000200032",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["sbismart.com", "secure.sbismart.com"],
+    "official_emails": ["helpdesk@sbicapsec.com"]
+  },
+  {
+    "entity_name": "Motilal Oswal Financial Services Limited",
+    "registration_number": "INZ000158836",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["motilaloswal.com", "trade.motilaloswal.com"],
+    "official_emails": ["connect@motilaloswal.com"]
+  },
+  {
+    "entity_name": "Sharekhan Limited",
+    "registration_number": "INZ000171330",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["sharekhan.com", "trade.sharekhan.com"],
+    "official_emails": ["myaccount@sharekhan.com"]
+  },
+  {
+    "entity_name": "Paytm Money Limited",
+    "registration_number": "INZ000240532",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["paytmmoney.com"],
+    "official_emails": ["care@paytmmoney.com"]
+  },
+  {
+    "entity_name": "India Infoline (IIFL Securities)",
+    "registration_number": "INZ000164132",
+    "category": "Stock Broker",
+    "sebi_registered": true,
+    "official_domains": ["indiainfoline.com", "iiflsecurities.com"],
+    "official_emails": ["cs@iifl.com"]
+  },
+  {
+    "entity_name": "CDSL — Central Depository Services (India) Ltd",
+    "registration_number": "IN-DP-CDSL-00032",
+    "category": "Depository Participant",
+    "sebi_registered": true,
+    "official_domains": ["cdslindia.com", "easi.cdslindia.com"],
+    "official_emails": ["helpdesk@cdslindia.com"]
+  },
+  {
+    "entity_name": "NSDL — National Securities Depository Limited",
+    "registration_number": "IN-DP-NSDL-00001",
+    "category": "Depository Participant",
+    "sebi_registered": true,
+    "official_domains": ["nsdl.co.in", "speed-e.in"],
+    "official_emails": ["info@nsdl.co.in"]
+  },
+  {
+    "entity_name": "SBI Mutual Fund",
+    "registration_number": "MF-009",
+    "category": "Mutual Fund",
+    "sebi_registered": true,
+    "official_domains": ["sbimf.com"],
+    "official_emails": ["customercare@sbimf.com"]
+  },
+  {
+    "entity_name": "HDFC Asset Management Company Limited",
+    "registration_number": "MF-044",
+    "category": "Mutual Fund",
+    "sebi_registered": true,
+    "official_domains": ["hdfcfund.com"],
+    "official_emails": ["cliser@hdfcfund.com"]
+  },
+  {
+    "entity_name": "ICICI Prudential Mutual Fund",
+    "registration_number": "MF-012",
+    "category": "Mutual Fund",
+    "sebi_registered": true,
+    "official_domains": ["icicipruamc.com"],
+    "official_emails": ["enquiry@icicipruamc.com"]
+  },
+  {
+    "entity_name": "Axis Mutual Fund",
+    "registration_number": "MF-062",
+    "category": "Mutual Fund",
+    "sebi_registered": true,
+    "official_domains": ["axismf.com"],
+    "official_emails": ["customerservice@axismf.com"]
+  },
+  {
+    "entity_name": "Nippon India Mutual Fund",
+    "registration_number": "MF-013",
+    "category": "Mutual Fund",
+    "sebi_registered": true,
+    "official_domains": ["nipponindiamf.com", "mf.nipponindiaim.com"],
+    "official_emails": ["customercare@nipponindiaim.in"]
+  },
+  {
+    "entity_name": "Bajaj Finserv Asset Management Ltd",
+    "registration_number": "MF-082",
+    "category": "Mutual Fund",
+    "sebi_registered": true,
+    "official_domains": ["bajajamc.com", "bajajfinservamc.com"],
+    "official_emails": ["mf@bajajfinserv.in"]
+  }
+]

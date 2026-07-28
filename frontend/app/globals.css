@@ -1,0 +1,472 @@
+/* ============================================================
+   PRAMAAN-SHIELD — Intaglio Security Certificate Design System
+   Visual source:     doce/mockup_pramaan_v2.html
+   Structural source: doce/DESIGN.md §4–§8, §13
+
+   Fonts are loaded via next/font in app/layout.tsx (not @import here) so
+   they are self-hosted, preloaded, and non-render-blocking. The
+   --font-* vars below are supplied by those next/font instances.
+   ============================================================ */
+
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+@layer base {
+  :root {
+    /* ── Intaglio palette (light / "safety paper") ───────────── */
+    --paper:        #E6ECE4; /* pale safety-paper */
+    --paper-2:      rgba(237, 241, 233, 0.85); /* frosted glass certificate field */
+    --ink:          #14211C; /* intaglio near-black, green undertone */
+    --ink-soft:     #3C4A43;
+    --engrave:      #116E5F; /* guilloche teal — PASS / VERIFIED */
+    --prussian:     #123E6B; /* secondary security ink */
+    --stamp:        #B2231F; /* rubber-stamp vermilion — FAIL */
+    --stamp-soft:   #C7433D;
+    --foil:         #9A7B2E; /* embossed gold — authenticated */
+    --foil-lite:    #CBA85A;
+    --amber:        #B07A18; /* CAUTION band */
+    --line:         rgba(185, 196, 183, 0.6);
+    --line-ink:     rgba(139, 152, 138, 0.8);
+
+    /* Canvas wash used behind the guilloche bands. */
+    --wash-a:       rgba(17, 110, 95, 0.08);
+    --wash-b:       rgba(18, 62, 107, 0.08);
+
+    /* Input / raised surfaces — alpha over paper. */
+    --field:        rgba(255, 255, 255, 0.65);
+    --field-strong: rgba(255, 255, 255, 0.90);
+
+    /* Focus ring — DESIGN.md §13 */
+    --focus-ring:   0 0 0 3px rgba(17, 110, 95, 0.38);
+
+    --skeleton-base:  #DCE4DA;
+    --skeleton-shine: #EDF1E9;
+
+    color-scheme: light;
+  }
+
+  /* ── Dark ramp with Glassmorphism ───────────────────────────── */
+  [data-theme='dark'] {
+    --paper:        #0B120F; /* deep safety-paper */
+    --paper-2:      rgba(18, 28, 24, 0.75); /* dark frosted glass */
+    --ink:          #E3ECE8;
+    --ink-soft:     #9AB0A6;
+    --engrave:      #20B29A; /* brightened for AA on dark paper */
+    --prussian:     #4B8FD0;
+    --stamp:        #E4645E;
+    --stamp-soft:   #C7433D;
+    --foil:         #CBA85A;
+    --foil-lite:    #E3CA83;
+    --amber:        #D9A648;
+    --line:         rgba(36, 54, 46, 0.7);
+    --line-ink:     rgba(66, 90, 78, 0.8);
+
+    --wash-a:       rgba(32, 178, 154, 0.12);
+    --wash-b:       rgba(75, 143, 208, 0.12);
+
+    --field:        rgba(15, 24, 20, 0.65);
+    --field-strong: rgba(15, 24, 20, 0.85);
+
+    --focus-ring:   0 0 0 3px rgba(32, 178, 154, 0.45);
+
+    --skeleton-base:  #18241F;
+    --skeleton-shine: #223029;
+
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    background-color: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body), 'Spectral', serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    background-image:
+      radial-gradient(circle at 15% 12%, var(--wash-a), transparent 45%),
+      radial-gradient(circle at 85% 88%, var(--wash-b), transparent 45%),
+      radial-gradient(circle at 50% 50%, rgba(32, 178, 154, 0.04), transparent 60%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+
+  :lang(hi) {
+    font-family: var(--font-dev), 'Tiro Devanagari Hindi', serif;
+  }
+
+  :focus-visible {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    box-shadow: var(--focus-ring);
+  }
+
+  ::selection {
+    background: var(--engrave);
+    color: var(--paper);
+  }
+}
+
+/* ============================================================
+   COMPONENTS
+   ============================================================ */
+@layer components {
+  .font-serif-header  { font-family: var(--font-serif), 'DM Serif Display', serif; }
+  .font-hindi         { font-family: var(--font-dev), 'Tiro Devanagari Hindi', serif; }
+  .font-body-spectral { font-family: var(--font-body), 'Spectral', serif; }
+  .font-mono-security { font-family: var(--font-mono), 'IBM Plex Mono', monospace; }
+
+  .micro {
+    font-family: var(--font-mono), monospace;
+    font-size: 8.5px;
+    letter-spacing: 0.32em;
+    color: var(--line-ink);
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ── Glassmorphism Certificate Frame ─────────────────────── */
+  .cert-frame {
+    position: relative;
+    background: var(--paper-2);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--line-ink);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+  }
+
+  .cert-frame:hover {
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25), 0 0 30px rgba(32, 178, 154, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+
+  .cert-frame--foil {
+    border-color: var(--foil);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2), 0 0 20px rgba(203, 168, 90, 0.12);
+  }
+  .cert-frame--stamp {
+    border-color: var(--stamp);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2), 0 0 20px rgba(228, 100, 94, 0.12);
+  }
+
+  .cert-corner {
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    border: 2px solid var(--engrave);
+    opacity: 0.65;
+    pointer-events: none;
+  }
+  .cert-corner.tl { top: 12px; left: 12px;  border-right: 0; border-bottom: 0; }
+  .cert-corner.tr { top: 12px; right: 12px; border-left: 0;  border-bottom: 0; }
+  .cert-corner.bl { bottom: 12px; left: 12px;  border-right: 0; border-top: 0; }
+  .cert-corner.br { bottom: 12px; right: 12px; border-left: 0;  border-top: 0; }
+
+  /* Section rule with an engraved index number. */
+  .sectitle {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .sectitle > .rule {
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  /* ── Rubber stamp ────────────────────────────────────────── */
+  .stamp-box {
+    font-family: var(--font-mono), monospace;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    color: var(--stamp);
+    border: 1.5px solid var(--stamp);
+    padding: 3px 9px;
+    text-transform: uppercase;
+    display: inline-block;
+    transform: rotate(-2deg);
+    background: transparent;
+  }
+
+  .stamp-box--ok {
+    color: var(--engrave);
+    border-color: var(--engrave);
+    transform: rotate(0deg);
+  }
+
+  .stamp-box--foil {
+    color: var(--foil);
+    border-color: var(--foil);
+    transform: rotate(0deg);
+  }
+
+  /* ── Buttons with Glassmorphism ───────────────────────────── */
+  .cbtn {
+    font-family: var(--font-mono), monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    min-height: 44px;
+    padding: 11px 20px;
+    border: 1px solid var(--line-ink);
+    border-radius: 6px;
+    background: var(--field);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--ink);
+    cursor: pointer;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background-color 180ms ease, color 180ms ease,
+                transform 100ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  }
+
+  .cbtn:hover:not(:disabled) {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  }
+
+  .cbtn:active:not(:disabled) {
+    transform: scale(0.97);
+    box-shadow: theme('boxShadow.press');
+  }
+
+  .cbtn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    border-color: var(--line-ink);
+    color: var(--ink-soft);
+  }
+
+  .cbtn--solid {
+    background: var(--stamp);
+    border-color: var(--stamp);
+    color: #FBECEB;
+    box-shadow: 0 4px 15px rgba(228, 100, 94, 0.25);
+  }
+  .cbtn--solid:hover:not(:disabled) {
+    background: var(--stamp-soft);
+    border-color: var(--stamp-soft);
+    color: #FBECEB;
+    box-shadow: 0 6px 22px rgba(228, 100, 94, 0.35);
+  }
+
+  .cbtn--ok {
+    background: var(--engrave);
+    border-color: var(--engrave);
+    color: var(--paper);
+    box-shadow: 0 4px 18px rgba(32, 178, 154, 0.3);
+  }
+  .cbtn--ok:hover:not(:disabled) {
+    filter: brightness(1.12);
+    background: var(--engrave);
+    color: var(--paper);
+    box-shadow: 0 6px 24px rgba(32, 178, 154, 0.45);
+  }
+
+  .cbtn--ghost {
+    border-color: var(--line-ink);
+    color: var(--ink-soft);
+  }
+  .cbtn--ghost:hover:not(:disabled) {
+    background: var(--line);
+    color: var(--ink);
+  }
+
+  .cbtn.solid {
+    background: var(--stamp);
+    border-color: var(--stamp);
+    color: #FBECEB;
+    box-shadow: 0 4px 15px rgba(228, 100, 94, 0.25);
+  }
+  .cbtn.solid:hover:not(:disabled) {
+    background: var(--stamp-soft);
+    border-color: var(--stamp-soft);
+    color: #FBECEB;
+    box-shadow: 0 6px 22px rgba(228, 100, 94, 0.35);
+  }
+
+  .cbtn.solid-ok {
+    background: var(--engrave);
+    border-color: var(--engrave);
+    color: var(--paper);
+    box-shadow: 0 4px 18px rgba(32, 178, 154, 0.3);
+  }
+  .cbtn.solid-ok:hover:not(:disabled) {
+    filter: brightness(1.12);
+    background: var(--engrave);
+    color: var(--paper);
+    box-shadow: 0 6px 24px rgba(32, 178, 154, 0.45);
+  }
+
+  /* ── Glass Fields ────────────────────────────────────────── */
+  .cfield {
+    width: 100%;
+    font-family: var(--font-mono), monospace;
+    font-size: 13px;
+    background: var(--field);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--ink);
+    border: 1px solid var(--line-ink);
+    border-radius: 6px;
+    padding: 12px 16px;
+    min-height: 44px;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+    transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .cfield::placeholder { color: var(--line-ink); }
+
+  .cfield:hover:not(:disabled) { border-color: var(--ink-soft); }
+
+  .cfield:focus {
+    border-color: var(--engrave);
+    background: var(--field-strong);
+    outline: 2px solid transparent;
+    box-shadow: var(--focus-ring);
+  }
+
+  .cfield--invalid {
+    border-color: var(--stamp);
+    background: rgba(178, 35, 31, 0.05);
+  }
+
+  .cfield-label {
+    display: block;
+    font-family: var(--font-mono), monospace;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+  }
+
+  /* ── Ledger rows (findings table) ────────────────────────── */
+  .frow {
+    display: grid;
+    grid-template-columns: 16px 1fr auto;
+    gap: 11px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--line);
+    align-items: baseline;
+  }
+
+  /* ── Skeleton ────────────────────────────────────────────── */
+  .skeleton {
+    background-image: linear-gradient(
+      90deg,
+      var(--skeleton-base) 0%,
+      var(--skeleton-shine) 50%,
+      var(--skeleton-base) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s linear infinite;
+    border-radius: 2px;
+  }
+
+  /* ── Scan sweep overlay ──────────────────────────────────── */
+  .scan-sweep {
+    position: absolute;
+    inset-inline: 0;
+    height: 28%;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      var(--wash-a) 45%,
+      var(--engrave) 50%,
+      var(--wash-a) 55%,
+      transparent
+    );
+    opacity: 0.5;
+  }
+
+  /* Skip link — visible only once focused. */
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+    z-index: 100;
+  }
+  .skip-link:focus {
+    left: 1rem;
+    top: 1rem;
+    padding: 10px 16px;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--font-mono), monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+  }
+}
+
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+@layer utilities {
+  /* Dotted-leader row used across evidence tables. */
+  .leader {
+    border-bottom: 1px dotted var(--line);
+  }
+
+  .tabular { font-variant-numeric: tabular-nums; }
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--paper-2); }
+::-webkit-scrollbar-thumb {
+  background: var(--line-ink);
+  border: 2px solid var(--paper-2);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--ink-soft); }
+
+/* ── Reduced motion — DESIGN.md §13 ────────────────────────
+   Kill the sweep, shimmer, and staggered reveals; keep state changes
+   instant rather than animated. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .scan-sweep,
+  .skeleton {
+    animation: none !important;
+  }
+
+  .skeleton { background: var(--skeleton-base); }
+}
+
+/* ── Print — the certificate should print like a certificate ── */
+@media print {
+  body {
+    background: #fff;
+    background-image: none;
+  }
+  .cert-frame {
+    box-shadow: none;
+    border-color: #000;
+    break-inside: avoid;
+  }
+  .no-print { display: none !important; }
+}

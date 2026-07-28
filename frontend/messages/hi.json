@@ -1,0 +1,32 @@
+{
+  "common": {
+    "appName": "प्रमाण शील्ड",
+    "tagline": "AI धोखाधड़ी की पहचान करें। असली को प्रमाणित करें।",
+    "scanBtn": "स्कैन करें",
+    "verifyBtn": "सत्यापित करें",
+    "reportBtn": "रिपोर्ट करें",
+    "loading": "विश्लेषण हो रहा है..."
+  },
+  "verdict": {
+    "VERIFIED": "✅ सत्यापित",
+    "EXERCISE CAUTION": "⚠️ सावधान रहें",
+    "SUSPICIOUS": "🚫 संदिग्ध"
+  },
+  "seal": {
+    "VERIFIED": "मान्य PRAMAAN Seal",
+    "TAMPERED": "छेड़छाड़ की गई सामग्री",
+    "FORGED": "नकली Seal",
+    "REVOKED": "Seal रद्द",
+    "EXPIRED": "Seal समाप्त",
+    "UNVERIFIED": "Seal नहीं मिली"
+  },
+  "checks": {
+    "hash": "ज्ञात नकली जांच",
+    "phishing": "फ़िशिंग विश्लेषण",
+    "voice": "आवाज़ प्रमाणिकता",
+    "video": "वीडियो प्रमाणिकता",
+    "domain": "डोमेन जांच",
+    "registry": "SEBI रजिस्ट्री",
+    "seal": "PRAMAAN Seal"
+  }
+}

@@ -1,0 +1,45 @@
+# Core Framework
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Database & Cache
+motor>=3.3.2
+redis>=5.0.1
+
+# ML — Voice & Video Detection (Compatible with Python 3.13)
+torch>=2.6.0
+torchaudio>=2.6.0
+
+# ML — Video Detection
+opencv-python-headless>=4.8.1.78
+Pillow>=10.1.0
+timm>=0.9.12
+numpy>=1.26.2
+
+# Hashing
+imagehash>=4.3.1
+videohash>=3.0.1
+
+# Cryptography
+cryptography>=41.0.7
+qrcode[pil]>=7.4.2
+
+# Gemini API
+google-generativeai>=0.3.2
+
+# Telegram Bot
+python-telegram-bot>=20.7
+
+# Email Analysis & Utilities
+dnspython>=2.4.2
+python-Levenshtein>=0.23.0
+httpx>=0.25.2
+python-dotenv>=1.0.0
+loguru>=0.7.2
+
+# Testing
+pytest>=7.4.3
+pytest-asyncio>=0.21.1

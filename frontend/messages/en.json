@@ -1,0 +1,32 @@
+{
+  "common": {
+    "appName": "PRAMAAN SHIELD",
+    "tagline": "Detect AI fraud. Authenticate what's real.",
+    "scanBtn": "Scan Content",
+    "verifyBtn": "Verify Seal",
+    "reportBtn": "File Report",
+    "loading": "Analyzing..."
+  },
+  "verdict": {
+    "VERIFIED": "✅ Verified",
+    "EXERCISE CAUTION": "⚠️ Exercise Caution",
+    "SUSPICIOUS": "🚫 Suspicious"
+  },
+  "seal": {
+    "VERIFIED": "Valid PRAMAAN Seal",
+    "TAMPERED": "Content Tampered After Signing",
+    "FORGED": "Forged Seal — Not From Registered Entity",
+    "REVOKED": "Seal Revoked By Issuer",
+    "EXPIRED": "Seal Expired",
+    "UNVERIFIED": "No PRAMAAN Seal Found"
+  },
+  "checks": {
+    "hash": "Known Fake Check",
+    "phishing": "Phishing Analysis",
+    "voice": "Voice Authenticity",
+    "video": "Video Authenticity",
+    "domain": "Domain Check",
+    "registry": "SEBI Registry",
+    "seal": "PRAMAAN Seal"
+  }
+}
