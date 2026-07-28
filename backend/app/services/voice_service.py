@@ -36,16 +36,15 @@ class VoiceAnalyzer:
         Ensemble formula: 0.6 * AASIST + 0.4 * RawNet2
         """
         try:
-            audio_bytes = b""
             path_obj = Path(audio_path)
-            if path_obj.exists():
-                audio_bytes = path_obj.read_bytes()
+            # Pass file path to model predictors for native MP3/WAV torchaudio decoding
+            audio_target = str(path_obj) if path_obj.exists() else b""
 
-            aasist_score = self.aasist.predict(audio_bytes)
-            rawnet2_score = self.rawnet2.predict(audio_bytes)
+            aasist_score = self.aasist.predict(audio_target)
+            rawnet2_score = self.rawnet2.predict(audio_target)
 
             combined = 0.6 * aasist_score + 0.4 * rawnet2_score
-            is_synthetic = combined < 0.5
+            is_synthetic = combined < 0.50
 
             liveness_score = round(combined * 100)
             verdict_text = (

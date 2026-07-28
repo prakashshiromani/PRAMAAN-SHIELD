@@ -96,8 +96,8 @@ async def scan_content(
         # Generate perceptual hash
         if content_type == ContentType.IMAGE:
             perceptual_hash = generate_image_phash(saved_temp_path)
-        elif content_type == ContentType.VIDEO:
-            perceptual_hash = generate_video_phash(saved_temp_path)
+        elif content_type in [ContentType.VIDEO, ContentType.AUDIO]:
+            perceptual_hash = generate_video_phash(saved_temp_path) or generate_image_phash(saved_temp_path)
 
     elif text_content:
         content_bytes = text_content.encode("utf-8")

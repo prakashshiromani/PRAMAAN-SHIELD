@@ -206,7 +206,9 @@ def calculate_trust_score(
             ))
 
     if voice_result and voice_result.is_synthetic:
-        score -= settings.WEIGHT_VOICE_SYNTHETIC
+        hard_gate_triggered = True
+        voice_deduction = max(35, settings.WEIGHT_VOICE_SYNTHETIC)
+        score -= voice_deduction
         checks.append(CheckResult(
             module="voice",
             status=CheckStatus.FAIL,
@@ -214,7 +216,7 @@ def calculate_trust_score(
             label_hi="नकली / AI वॉयस क्लोनिंग",
             detail=voice_result.verdict,
             detail_hi="आवाज कृत्रिम या AI द्वारा क्लोन की गई पाई गई",
-            contribution=-settings.WEIGHT_VOICE_SYNTHETIC
+            contribution=-voice_deduction
         ))
 
     if video_result and video_result.is_deepfake:

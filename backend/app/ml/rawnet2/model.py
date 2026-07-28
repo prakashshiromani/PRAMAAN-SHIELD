@@ -30,9 +30,9 @@ class RawNet2Model:
         else:
             logger.info("RawNet2: Operating in HACKATHON deterministic fallback mode")
 
-    def predict(self, audio_data: bytes) -> float:
+    def predict(self, audio_input) -> float:
         """
-        Run inference on raw audio waveform bytes.
+        Run inference on raw audio waveform bytes or file path.
         Returns bonafide probability score (0.0 - 1.0).
         """
         if self.mode == "PRODUCTION" and self.model is not None:
@@ -41,10 +41,10 @@ class RawNet2Model:
             except Exception as e:
                 logger.error(f"Inference error in RawNet2 production mode: {e}")
 
-        return self._envelope_forensics(audio_data)
+        return self._envelope_forensics(audio_input)
 
     @staticmethod
-    def _envelope_forensics(audio_data: bytes) -> float:
+    def _envelope_forensics(audio_input) -> float:
         """
         Complementary acoustic analysis for HACKATHON mode.
         Focuses on energy envelope periodicity and crest factor.
@@ -56,30 +56,46 @@ class RawNet2Model:
         import io
 
         try:
-            if not audio_data or len(audio_data) < 1000:
-                return 0.5
+            audio = None
+            sample_rate = 16000
 
-            import wave
+            # 1. Try decoding via torchaudio
             try:
-                with wave.open(io.BytesIO(audio_data)) as wf:
-                    n_frames = wf.getnframes()
-                    sample_rate = wf.getframerate()
-                    raw = wf.readframes(n_frames)
-                    sample_width = wf.getsampwidth()
+                import torchaudio
+                if isinstance(audio_input, (str, Path)) and Path(audio_input).exists():
+                    waveform, sample_rate = torchaudio.load(str(audio_input))
+                    audio = waveform.mean(dim=0).numpy().astype(np.float32)
+                elif isinstance(audio_input, (bytes, bytearray)):
+                    waveform, sample_rate = torchaudio.load(io.BytesIO(audio_input))
+                    audio = waveform.mean(dim=0).numpy().astype(np.float32)
             except Exception:
-                raw = audio_data
-                sample_rate = 16000
-                sample_width = 2
+                pass
 
-            if sample_width == 2:
-                audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-            else:
-                audio = np.frombuffer(raw, dtype=np.uint8).astype(np.float32) / 128.0 - 1.0
+            # 2. Try stdlib wave module
+            if audio is None:
+                try:
+                    raw_bytes = audio_input if isinstance(audio_input, (bytes, bytearray)) else Path(audio_input).read_bytes()
+                    with wave.open(io.BytesIO(raw_bytes)) as wf:
+                        n_frames = wf.getnframes()
+                        sample_rate = wf.getframerate()
+                        raw = wf.readframes(n_frames)
+                        sample_width = wf.getsampwidth()
+                        n_channels = wf.getnchannels()
 
-            if len(audio) < 1600:
+                    if sample_width == 2:
+                        audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                    else:
+                        audio = np.frombuffer(raw, dtype=np.uint8).astype(np.float32) / 128.0 - 1.0
+
+                    if n_channels > 1:
+                        audio = audio[::n_channels]
+                except Exception:
+                    pass
+
+            if audio is None or len(audio) < 1600:
                 return 0.5
 
-            max_samples = sample_rate * 3
+            max_samples = sample_rate * 5
             audio = audio[:max_samples]
 
             # 1. Energy envelope analysis — compute RMS per 50ms frame

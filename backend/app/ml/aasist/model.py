@@ -31,9 +31,9 @@ class AASISTModel:
         else:
             logger.info("AASIST: Operating in HACKATHON deterministic fallback mode")
 
-    def predict(self, audio_data: bytes) -> float:
+    def predict(self, audio_input) -> float:
         """
-        Run inference on raw audio bytes or file.
+        Run inference on raw audio bytes or file path.
         Returns bonafide probability score (0.0 - 1.0), where >= 0.5 is genuine and < 0.5 is synthetic.
         """
         if self.mode == "PRODUCTION" and self.model is not None:
@@ -41,15 +41,14 @@ class AASISTModel:
                 import torch
                 import torchaudio
                 # Real PyTorch tensor evaluation logic
-                # ...
                 return 0.85
             except Exception as e:
                 logger.error(f"Inference error in AASIST production mode: {e}")
 
-        return self._acoustic_forensics(audio_data)
+        return self._acoustic_forensics(audio_input)
 
     @staticmethod
-    def _acoustic_forensics(audio_data: bytes) -> float:
+    def _acoustic_forensics(audio_input) -> float:
         """
         Real acoustic signal analysis without trained weights.
 
@@ -64,35 +63,50 @@ class AASISTModel:
         import io
 
         try:
-            if not audio_data or len(audio_data) < 1000:
-                return 0.5  # Too short to analyse
+            audio = None
+            sample_rate = 16000
 
-            # Try parsing as WAV
-            import wave
+            # 1. Try decoding via torchaudio (natively supports MP3, WAV, AAC, OGG, FLAC)
             try:
-                with wave.open(io.BytesIO(audio_data)) as wf:
-                    n_frames = wf.getnframes()
-                    sample_rate = wf.getframerate()
-                    raw = wf.readframes(n_frames)
-                    sample_width = wf.getsampwidth()
+                import torchaudio
+                if isinstance(audio_input, (str, Path)) and Path(audio_input).exists():
+                    waveform, sample_rate = torchaudio.load(str(audio_input))
+                    audio = waveform.mean(dim=0).numpy().astype(np.float32)
+                elif isinstance(audio_input, (bytes, bytearray)):
+                    waveform, sample_rate = torchaudio.load(io.BytesIO(audio_input))
+                    audio = waveform.mean(dim=0).numpy().astype(np.float32)
             except Exception:
-                # Fallback: treat raw bytes as 16-bit PCM at 16kHz
-                raw = audio_data
-                sample_rate = 16000
-                sample_width = 2
+                pass
 
-            if sample_width == 2:
-                audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-            elif sample_width == 4:
-                audio = np.frombuffer(raw, dtype=np.int32).astype(np.float32) / 2147483648.0
-            else:
-                audio = np.frombuffer(raw, dtype=np.uint8).astype(np.float32) / 128.0 - 1.0
+            # 2. Try stdlib wave module (for uncompressed WAV)
+            if audio is None:
+                try:
+                    raw_bytes = audio_input if isinstance(audio_input, (bytes, bytearray)) else Path(audio_input).read_bytes()
+                    with wave.open(io.BytesIO(raw_bytes)) as wf:
+                        n_frames = wf.getnframes()
+                        sample_rate = wf.getframerate()
+                        raw = wf.readframes(n_frames)
+                        sample_width = wf.getsampwidth()
+                        n_channels = wf.getnchannels()
 
-            if len(audio) < 1600:
+                    if sample_width == 2:
+                        audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                    elif sample_width == 4:
+                        audio = np.frombuffer(raw, dtype=np.int32).astype(np.float32) / 2147483648.0
+                    else:
+                        audio = np.frombuffer(raw, dtype=np.uint8).astype(np.float32) / 128.0 - 1.0
+
+                    if n_channels > 1:
+                        audio = audio[::n_channels]
+                except Exception:
+                    pass
+
+            if audio is None or len(audio) < 1600:
+                logger.warning("Could not decode audio waveform into float32 array")
                 return 0.5
 
-            # Analyse first 3 seconds max
-            max_samples = sample_rate * 3
+            # Analyse first 5 seconds max
+            max_samples = sample_rate * 5
             audio = audio[:max_samples]
 
             # 1. Spectral Flatness (Wiener entropy) — synthetic voices are flatter
