@@ -98,7 +98,7 @@ class RawNet2Model:
             max_samples = sample_rate * 5
             audio = audio[:max_samples]
 
-            # 1. Energy envelope analysis — compute RMS per 50ms frame
+            # 1. Short-Term RMS Energy Envelope Periodicity
             frame_len = sample_rate // 20  # 50ms
             envelope = np.array([
                 float(np.sqrt(np.mean(audio[i:i + frame_len] ** 2)))
@@ -106,39 +106,48 @@ class RawNet2Model:
             ])
 
             if len(envelope) < 4:
-                return 0.5
+                return 0.35
 
-            # 2. Silence ratio — real speech has natural pauses
-            silence_threshold = 0.02
-            silence_ratio = float(np.mean(envelope < silence_threshold))
-            # Real speech: ~15-30% silence. TTS: <5% or >50%
-            silence_score = 1.0 if 0.10 <= silence_ratio <= 0.40 else 0.3
-
-            # 3. Crest factor — peak amplitude / RMS
+            # 2. Dynamic Range Compression (Crest Factor)
             peak = float(np.max(np.abs(audio)))
             rms_global = float(np.sqrt(np.mean(audio ** 2)))
             crest = peak / (rms_global + 1e-10)
-            # Real speech: crest ~3-8. Normalised TTS: ~2-3 (compressed dynamic range)
-            crest_score = 1.0 if 3.0 <= crest <= 9.0 else 0.4
 
-            # 4. Envelope autocorrelation — TTS has unnaturally periodic energy
+            # AI TTS audio is heavily compressed (crest < 3.5)
+            crest_anomaly = max(0.0, min(1.0, (4.5 - crest) / 3.0))
+
+            # 3. Envelope Autocorrelation Periodicity
             env_centered = envelope - np.mean(envelope)
             autocorr = np.correlate(env_centered, env_centered, mode='full')
             autocorr = autocorr[len(autocorr) // 2:]
             if autocorr[0] > 0:
                 autocorr = autocorr / autocorr[0]
-            periodicity = float(np.max(autocorr[2:min(len(autocorr), 20)]))
-            # Real speech: low periodicity (<0.4). TTS: high (>0.6)
-            period_score = max(0.0, 1.0 - periodicity)
+            periodicity = float(np.max(autocorr[2:min(len(autocorr), 20)])) if len(autocorr) > 20 else 0.5
 
-            # Combine
-            liveness = (
-                0.35 * silence_score
-                + 0.30 * crest_score
-                + 0.35 * period_score
+            # AI vocoder synthesis exhibits high energy envelope periodicity (>0.45)
+            period_anomaly = max(0.0, min(1.0, (periodicity - 0.30) / 0.40))
+
+            # 4. Zero-Crossing Rate Jitter (micro-variations in pitch)
+            zcr = [
+                float(np.mean(np.abs(np.diff(np.sign(audio[i:i + frame_len]))) > 0))
+                for i in range(0, len(audio) - frame_len, frame_len)
+            ]
+            zcr_std = float(np.std(zcr)) if len(zcr) > 2 else 0.1
+            zcr_anomaly = max(0.0, min(1.0, (0.08 - zcr_std) / 0.06))
+
+            synthetic_score = (
+                0.35 * crest_anomaly
+                + 0.35 * period_anomaly
+                + 0.30 * zcr_anomaly
+            )
+
+            liveness = 1.0 - max(0.0, min(1.0, synthetic_score))
+            logger.info(
+                f"RawNet2 forensics: liveness={liveness:.2f}, crest={crest:.2f}, "
+                f"periodicity={periodicity:.3f}, zcr_std={zcr_std:.4f}"
             )
             return round(max(0.05, min(0.95, liveness)), 3)
 
         except Exception as e:
             logger.warning(f"RawNet2 envelope forensics fallback failed: {e}")
-            return 0.5
+            return 0.35

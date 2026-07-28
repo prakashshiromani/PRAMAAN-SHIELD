@@ -109,38 +109,60 @@ class AASISTModel:
             max_samples = sample_rate * 5
             audio = audio[:max_samples]
 
-            # 1. Spectral Flatness (Wiener entropy) — synthetic voices are flatter
+            # 1. High-Frequency Vocoder Roll-off (AI TTS cutoff above 8kHz)
             fft_mag = np.abs(np.fft.rfft(audio))
-            fft_mag = fft_mag[fft_mag > 0]  # Remove zeros
-            if len(fft_mag) > 0:
-                geometric_mean = np.exp(np.mean(np.log(fft_mag + 1e-10)))
-                arithmetic_mean = np.mean(fft_mag) + 1e-10
-                spectral_flatness = float(geometric_mean / arithmetic_mean)
-            else:
-                spectral_flatness = 0.5
+            freqs = np.fft.rfftfreq(len(audio), d=1.0 / sample_rate)
 
-            # 2. Short-term energy variance — TTS is monotone
+            total_energy = float(np.sum(fft_mag**2)) + 1e-10
+            hf_mask = freqs >= 7500.0  # Vocoders roll off around 8kHz
+            hf_energy = float(np.sum(fft_mag[hf_mask]**2)) if np.any(hf_mask) else 0.0
+            hf_ratio = hf_energy / total_energy
+
+            # AI TTS typically has unnaturally low energy above 7.5kHz (< 0.005)
+            hf_anomaly = max(0.0, min(1.0, (0.02 - hf_ratio) / 0.02))
+
+            # 2. Frame-by-Frame Spectral Centroid Dynamics (TTS formants are too static)
+            frame_size = int(sample_rate * 0.05)  # 50ms frames
+            hop_size = int(sample_rate * 0.025)   # 25ms hop
+            centroids = []
+
+            for i in range(0, len(audio) - frame_size, hop_size):
+                frame = audio[i:i + frame_size]
+                f_mag = np.abs(np.fft.rfft(frame))
+                f_freqs = np.fft.rfftfreq(len(frame), d=1.0 / sample_rate)
+                f_sum = np.sum(f_mag) + 1e-10
+                centroid = float(np.sum(f_freqs * f_mag) / f_sum)
+                centroids.append(centroid)
+
+            centroid_std = float(np.std(centroids)) if len(centroids) > 5 else 300.0
+            # Real human voice centroid std is dynamic (> 350 Hz). AI TTS is static (< 200 Hz).
+            static_formant_anomaly = max(0.0, min(1.0, (300.0 - centroid_std) / 200.0))
+
+            # 3. Short-term energy variance — TTS is monotone
             frame_len = sample_rate // 10  # 100ms frames
             energies = [
                 float(np.sqrt(np.mean(audio[i:i + frame_len] ** 2)))
                 for i in range(0, len(audio) - frame_len, frame_len)
             ]
             energy_std = float(np.std(energies)) if len(energies) > 2 else 0.3
+            monotone_anomaly = max(0.0, min(1.0, (0.25 - energy_std) / 0.20))
 
-            # 3. Zero-crossing rate — synthetic audio has cleaner transitions
-            zero_crossings = float(np.mean(np.abs(np.diff(np.sign(audio))) > 0))
-
-            # ── Combine features ─────────────────────────────────────────
-            # High spectral flatness + low energy variance → synthetic
-            synthetic_indicator = (
-                max(0.0, spectral_flatness - 0.2) * 1.5
-                + max(0.0, 0.3 - energy_std) * 2.0
-                + max(0.0, zero_crossings - 0.25) * 0.5
+            # ── Weighted Ensemble Forensics ──────────────────────────────────
+            synthetic_score = (
+                0.40 * hf_anomaly
+                + 0.40 * static_formant_anomaly
+                + 0.20 * monotone_anomaly
             )
 
-            liveness = 1.0 - min(1.0, synthetic_indicator)
+            # Convert to liveness score (1.0 = genuine, 0.0 = synthetic)
+            liveness = 1.0 - max(0.0, min(1.0, synthetic_score))
+            
+            logger.info(
+                f"AASIST forensics: liveness={liveness:.2f}, hf_ratio={hf_ratio:.4f}, "
+                f"centroid_std={centroid_std:.1f}, energy_std={energy_std:.3f}"
+            )
             return round(max(0.05, min(0.95, liveness)), 3)
 
         except Exception as e:
             logger.warning(f"AASIST acoustic forensics fallback failed: {e}")
-            return 0.5
+            return 0.35
