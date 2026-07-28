@@ -100,15 +100,16 @@ def calculate_trust_score(
             contribution=-50
         ))
 
-    if seal_result and seal_result.get("verdict") in ["FORGED", "TAMPERED"]:
+    if seal_result and (seal_result.get("verdict") in ["FORGED", "TAMPERED", "UNVERIFIED"] or seal_result.get("is_valid") is False):
         hard_gate_triggered = True
+        seal_verdict = seal_result.get('verdict', 'FORGED')
         checks.append(CheckResult(
             module="seal",
             status=CheckStatus.FAIL,
-            label=f"PRAMAAN Seal {seal_result.get('verdict')}",
-            label_hi=f"प्रमाण सील {seal_result.get('verdict')}",
+            label=f"PRAMAAN Seal {seal_verdict}",
+            label_hi=f"प्रमाण सील {seal_verdict}",
             detail=seal_result.get("message_en", "Cryptographic signature validation failed"),
-            detail_hi="क्रिप्टोग्राफिक डिजिटल हस्ताक्षर विफल या नकली पाया गया",
+            detail_hi=seal_result.get("message_hi", "क्रिप्टोग्राफिक डिजिटल हस्ताक्षर विफल या नकली पाया गया"),
             contribution=-50
         ))
 

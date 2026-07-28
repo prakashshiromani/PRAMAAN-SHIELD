@@ -99,6 +99,13 @@ async def scan_content(
         elif content_type in [ContentType.VIDEO, ContentType.AUDIO]:
             perceptual_hash = generate_video_phash(saved_temp_path) or generate_image_phash(saved_temp_path)
 
+        # Extract text content from text/eml file uploads if not provided
+        if file_ext in [".txt", ".eml", ".json"] and not text_content:
+            try:
+                text_content = content_bytes.decode("utf-8", errors="ignore")
+            except Exception:
+                pass
+
     elif text_content:
         content_bytes = text_content.encode("utf-8")
         content_sha256 = "sha256:" + hashlib.sha256(content_bytes).hexdigest()
