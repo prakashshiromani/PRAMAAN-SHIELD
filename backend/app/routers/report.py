@@ -171,11 +171,12 @@ async def download_report_pdf_endpoint(
             heatmap_b64=heatmap_b64,
             priority_code=priority_code,
             scores_custom_text=scores_custom_text,
-            cyber_custom_text=cyber_custom_text
+            cyber_custom_text=cyber_custom_text,
+            language=report_lang
         )
     except Exception as e:
         logger.error(f"ReportLab PDF generation error: {e}")
-        pdf_bytes = generate_evidence_pdf(report_id=report_id)
+        pdf_bytes = generate_evidence_pdf(report_id=report_id, language=report_lang)
 
     safe_report_id = re.sub(r"[^A-Za-z0-9_-]", "", report_id) or "report"
     return Response(
