@@ -31,7 +31,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob:",
-              "connect-src 'self' http://localhost:8000 https://pramaan-shield-backend.onrender.com https://*.hf.space",
+              "connect-src 'self' http://localhost:8000 https://pramaan-shield-backend.onrender.com https://*.onrender.com https://*.hf.space https://*.vercel.app",
             ].join('; ')
           }
         ]

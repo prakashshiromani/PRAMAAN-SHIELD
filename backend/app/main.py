@@ -54,11 +54,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-ALLOWED_ORIGINS = settings.resolved_allowed_origins()
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,7 +78,7 @@ async def security_headers_middleware(request, call_next):
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data:; "
-        "connect-src 'self' http://localhost:8000"
+        "connect-src 'self' *;"
     )
     if request.url.scheme == "https":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
