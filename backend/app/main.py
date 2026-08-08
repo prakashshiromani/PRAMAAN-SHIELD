@@ -33,28 +33,29 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Database connection during startup failed (will retry on requests): {e}")
 
-    # Preload ML analyzers OFF the event loop so the FIRST scan does not pay a
-    # cold-start model load (HF download sometimes) that blows the proxy timeout
-    # into a 502. Warm models also mean forked sandbox children get the already
-    # loaded weights copy-on-write instead of each re-downloading them.
-    # CPU/VRAM risk is bounded: ViT loads fp16 (~175 MB) and voice models are lazy.
-    try:
-        await asyncio.wait_for(
-            asyncio.to_thread(scan.get_video_analyzer),
-            timeout=240,
-        )
-        logger.info("Preloaded VideoAnalyzer (models warm)")
-    except Exception as e:
-        logger.warning(f"Video analyzer preload failed (lazy load on demand): {e}")
+    # Preload ML analyzers OFF the event loop unless running on Render / low-memory environment
+    # where preloading 500MB+ models breaches the 512MB free tier RAM ceiling.
+    import os
+    if os.getenv("RENDER") or os.getenv("DISABLE_MODEL_PRELOAD", "").lower() in ("true", "1"):
+        logger.info("Skipping ML analyzer preloading at startup (low-memory / Render mode active)")
+    else:
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(scan.get_video_analyzer),
+                timeout=240,
+            )
+            logger.info("Preloaded VideoAnalyzer (models warm)")
+        except Exception as e:
+            logger.warning(f"Video analyzer preload failed (lazy load on demand): {e}")
 
-    try:
-        await asyncio.wait_for(
-            asyncio.to_thread(scan.get_voice_analyzer),
-            timeout=240,
-        )
-        logger.info("Preloaded VoiceAnalyzer (models warm)")
-    except Exception as e:
-        logger.warning(f"Voice analyzer preload failed (lazy load on demand): {e}")
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(scan.get_voice_analyzer),
+                timeout=240,
+            )
+            logger.info("Preloaded VoiceAnalyzer (models warm)")
+        except Exception as e:
+            logger.warning(f"Voice analyzer preload failed (lazy load on demand): {e}")
 
     logger.info("Startup complete — All routers active")
     yield

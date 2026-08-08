@@ -52,12 +52,16 @@ class DeepfakeModel:
         self.model = None
 
         # 1. Try loading fine-tuned HuggingFace ViT Deepfake Classifier (trained on 140k images)
-        try:
-            import torch
-            from transformers import AutoImageProcessor, AutoModelForImageClassification
-            
-            repo_id = "dima806/deepfake_vs_real_image_detection"
-            settings = get_settings()
+        # Skip HF weight download on low-memory / Render instances (512MB limit)
+        if os.getenv("RENDER") or os.getenv("DISABLE_HF_MODELS", "").lower() in ("true", "1"):
+            logger.info("DeepfakeModel: Low-memory / Render mode active — using multi-spectral frame-forensics engine.")
+        else:
+            try:
+                import torch
+                from transformers import AutoImageProcessor, AutoModelForImageClassification
+                
+                repo_id = "dima806/deepfake_vs_real_image_detection"
+                settings = get_settings()
             hf_token = settings.HF_TOKEN or os.getenv("HF_TOKEN") or None
 
             kwargs = {}
