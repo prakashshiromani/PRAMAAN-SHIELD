@@ -3,14 +3,20 @@ const nextConfig = {
   output: process.env.VERCEL ? undefined : 'standalone',
 
   async rewrites() {
+    // BACKEND_URL is a server-side-only env var set in Vercel dashboard.
+    // Falls back to NEXT_PUBLIC_API_URL then localhost for local dev.
+    const backendUrl =
+      process.env.BACKEND_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      'http://localhost:8000';
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/:path*`
+        destination: `${backendUrl}/api/:path*`
       },
       {
         source: '/health',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/health`
+        destination: `${backendUrl}/health`
       }
     ];
   },

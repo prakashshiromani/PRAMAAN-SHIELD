@@ -17,8 +17,13 @@ export async function sha256Hex(message: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// For browser: use '' (same-origin via Next.js rewrites) to avoid CORS.
+// For server-side / local dev: use the full backend URL.
+const isBrowser = typeof window !== 'undefined';
+const axiosBaseURL = isBrowser ? '' : API_BASE_URL;
+
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: axiosBaseURL,
   timeout: 120_000,
 });
 
