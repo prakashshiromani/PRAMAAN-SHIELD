@@ -6,6 +6,11 @@ Isolates CPU-intensive media parsing (video decode, audio processing) inside a
 separate subprocess with a timeout guard. A malformed or adversarial media
 file cannot hang or crash the main FastAPI async event loop.
 
+Design: one short-lived process PER CALL (spawn context). Each call gets its
+own subprocess so a timeout hard-terminates exactly the rogue worker — never a
+sibling scan's future (a shared ProcessPoolExecutor + shutdown(cancel_futures)
+would cancel the OTHER concurrent scan and orphan the timed-out worker).
+
 Usage:
     from app.utils.sandboxed_runner import run_in_sandbox
 
@@ -13,30 +18,14 @@ Usage:
 """
 
 import asyncio
-import concurrent.futures
-import multiprocessing
+import multiprocessing as mp
 from typing import Any, Callable, Tuple
 from loguru import logger
 
 
-# Use a module-level process pool (lazily initialised) to avoid repeated
-# fork/spawn overhead. One worker is enough — media parsing is sequential.
-_pool: concurrent.futures.ProcessPoolExecutor | None = None
-
-
-def _get_pool() -> concurrent.futures.ProcessPoolExecutor:
-    global _pool
-    if _pool is None:
-        _pool = concurrent.futures.ProcessPoolExecutor(
-            max_workers=1,
-            mp_context=multiprocessing.get_context("spawn"),
-        )
-    return _pool
-
-
-def _run_func(func: Callable, args: Tuple) -> Any:
-    """Top-level wrapper so the function is picklable for multiprocessing."""
-    return func(*args)
+def _run_func(func: Callable, args: Tuple, queue) -> None:
+    """Top-level wrapper (picklable under spawn). Puts the result on the queue."""
+    queue.put(func(*args))
 
 
 async def run_in_sandbox(
@@ -50,44 +39,98 @@ async def run_in_sandbox(
     Args:
         func:         A module-level (picklable) function.
         args:         Positional arguments tuple.
-        timeout_secs: Maximum wall-clock seconds before the task is cancelled.
+        timeout_secs: Maximum wall-clock seconds before the process is killed.
 
     Returns:
         Whatever `func(*args)` returns.
 
     Raises:
-        TimeoutError:  If the function exceeds `timeout_secs`.
-        RuntimeError:  If the subprocess crashes (segfault, OOM, etc.).
+        TimeoutError: If the function exceeds `timeout_secs`.
+        RuntimeError: If the subprocess crashes (segfault, OOM, etc.).
     """
-    loop = asyncio.get_running_loop()
-    pool = _get_pool()
+    ctx = mp.get_context("spawn")
+    queue = ctx.SimpleQueue()
+    proc = ctx.Process(target=_run_func, args=(func, args, queue), daemon=True)
 
+    proc.start()
     try:
         result = await asyncio.wait_for(
-            loop.run_in_executor(pool, _run_func, func, args),
-            timeout=timeout_secs,
+            asyncio.to_thread(queue.get), timeout=timeout_secs
         )
         return result
-    except asyncio.TimeoutError:
-        logger.error(
-            f"Sandbox timeout: {func.__name__}() exceeded {timeout_secs}s limit"
-        )
-        # Kill the rogue worker and let the pool spawn a fresh one
-        _shutdown_pool()
+    except (asyncio.TimeoutError, TimeoutError):
+        logger.error(f"Sandbox timeout: {func.__name__}() exceeded {timeout_secs}s limit")
+        _terminate(proc)
         raise TimeoutError(
             f"Media processing exceeded {timeout_secs}s sandbox limit"
         )
     except Exception as e:
         logger.error(f"Sandbox execution failed for {func.__name__}(): {e}")
+        _terminate(proc)
         raise RuntimeError(f"Sandboxed execution failed: {e}") from e
-
-
-def _shutdown_pool():
-    """Force-kill the current process pool so a fresh one is created next call."""
-    global _pool
-    if _pool is not None:
+    finally:
+        # Close the queue on EVERY exit path, including timeouts. The worker
+        # thread blocked inside `queue.get()` cannot be cancelled by asyncio —
+        # without this, every sandbox timeout would permanently leak a
+        # blocked worker thread until the thread pool is exhausted.
         try:
-            _pool.shutdown(wait=False, cancel_futures=True)
+            queue.close()
         except Exception:
             pass
-        _pool = None
+
+
+def _terminate(proc: mp.Process) -> None:
+    """Hard-kill the rogue worker. Never touch anything else — each call owns
+    its own process, so sibling scans are unaffected."""
+    if proc.is_alive():
+        try:
+            proc.terminate()
+            proc.join(timeout=5)
+        except Exception:
+            pass
+    if proc.is_alive():
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+async def run_sandboxed_or_thread(
+    func: Callable,
+    args: Tuple = (),
+    *,
+    timeout_secs: int,
+    fallback: Callable,
+    task_label: str,
+) -> Any:
+    """
+    Run `func(*args)` sandboxed with a hard timeout; if the sandbox layer is
+    unavailable (spawn errors, missing fork support, etc.), degrade gracefully
+    to an in-process worker thread. The asyncio event loop is never blocked.
+
+    Shared by VoiceAnalyzer.analyze / VideoAnalyzer.analyze — previously each
+    duplicated this try/except fallback dance.
+    """
+    try:
+        return await run_in_sandbox(func, args, timeout_secs=timeout_secs)
+    except TimeoutError:
+        # Wall-clock deadline exceeded. NEVER silently re-run the analysis
+        # un-sandboxed: that would void the timeout exactly for the adversarial
+        # file the sandbox exists to stop. The caller downgrades to SKIP.
+        raise
+    except Exception as e:
+        logger.warning(
+            f"Sandboxed {task_label} unavailable ({e}); using in-process worker thread"
+        )
+        # Sandbox machinery failure (spawn/pickle/stdio), not a timeout. A
+        # worker thread can't be hard-killed, so at least bound the wait so a
+        # failing analysis cannot hold the request (or the pool) indefinitely.
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(fallback), timeout=timeout_secs
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            logger.error(f"Fallback {task_label} exceeded {timeout_secs}s; skipping analysis")
+            raise TimeoutError(
+                f"Media processing exceeded {timeout_secs}s processing limit"
+            )

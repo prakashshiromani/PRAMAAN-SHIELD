@@ -6,8 +6,10 @@ RawNet2 Raw Waveform CNN for audio liveness and deepfake detection.
 Operates in PRODUCTION mode when weights exist, or HACKATHON fallback mode.
 """
 
+import wave
 from pathlib import Path
 from loguru import logger
+import torch
 
 
 class RawNet2Model:
@@ -21,8 +23,13 @@ class RawNet2Model:
         if self.weights_path.exists() and self.weights_path.stat().st_size > 1024:
             try:
                 import torch
-                self.model = torch.load(self.weights_path, map_location="cpu")
-                self.model.eval()
+                loaded = torch.load(self.weights_path, map_location="cpu")
+                if isinstance(loaded, dict):
+                    self.model = loaded
+                else:
+                    self.model = loaded
+                    if hasattr(self.model, "eval"):
+                        self.model.eval()
                 self.mode = "PRODUCTION"
                 logger.info(f"Loaded PyTorch RawNet2 model from {self.weights_path}")
             except Exception as e:
@@ -34,13 +41,48 @@ class RawNet2Model:
         """
         Run inference on raw audio waveform bytes or file path.
         Returns bonafide probability score (0.0 - 1.0).
+
+        SECURITY NOTE (A2): the weights on disk are a placeholder dict, NOT a
+        trainable nn.Module. A constant "0.82" here would certify EVERY audio
+        clip as genuine (+35 "Authentic Voice Confirmed"). The PRODUCTION path
+        is taken only for a real nn.Module; otherwise the DSP forensics engine
+        runs instead.
         """
-        if self.mode == "PRODUCTION" and self.model is not None:
+        if self.mode == "PRODUCTION" and isinstance(self.model, torch.nn.Module):
             try:
-                return 0.82
+                return self._real_inference(audio_input)
             except Exception as e:
                 logger.error(f"Inference error in RawNet2 production mode: {e}")
+                return self._envelope_forensics(audio_input)
 
+        return self._envelope_forensics(audio_input)
+
+    def _real_inference(self, audio_input) -> float:
+        """Actual tensor evaluation against a genuine loaded RawNet2 module."""
+        try:
+            import torchaudio
+        except ImportError:
+            return self._envelope_forensics(audio_input)
+
+        if isinstance(audio_input, (str, Path)) and Path(audio_input).exists():
+            waveform, _ = torchaudio.load(str(audio_input))
+        elif isinstance(audio_input, (bytes, bytearray)):
+            import io
+            waveform, _ = torchaudio.load(io.BytesIO(audio_input))
+        else:
+            return self._envelope_forensics(audio_input)
+
+        if waveform.size(1) == 0:
+            return 0.35
+        waveform = waveform[:1]
+
+        with torch.no_grad():
+            self.model.eval()
+            out = self.model(waveform)
+            if isinstance(out, tuple):
+                out = out[0]
+            if isinstance(out, torch.Tensor):
+                return float(torch.sigmoid(out.float()).mean().item())
         return self._envelope_forensics(audio_input)
 
     @staticmethod
@@ -93,6 +135,11 @@ class RawNet2Model:
                     pass
 
             if audio is None or len(audio) < 1600:
+                raw_bytes = audio_input if isinstance(audio_input, (bytes, bytearray)) else Path(audio_input).read_bytes()
+                from app.ml.aasist.model import AASISTModel
+                mp3_score = AASISTModel._analyze_mp3_bitstream_forensics(raw_bytes)
+                if mp3_score is not None:
+                    return mp3_score
                 return 0.5
 
             max_samples = sample_rate * 5

@@ -9,11 +9,26 @@ import { useLanguage } from "@/lib/LanguageContext";
 export default function DashboardPage() {
   const { language, setLanguage } = useLanguage();
   const [stats, setStats] = useState<DashboardStatsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<string>("");
+
+  const fetchStats = async () => {
+    setLoading(true);
+    try {
+      const res = await getDashboardStats();
+      setStats(res);
+      setLastUpdated(new Date().toLocaleTimeString());
+    } catch (err) {
+      console.error("Dashboard fetch error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    getDashboardStats()
-      .then((res) => setStats(res))
-      .catch((err) => console.error(err));
+    fetchStats();
+    const interval = setInterval(fetchStats, 30_000); // Poll every 30s
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -21,7 +36,7 @@ export default function DashboardPage() {
       <TopNav language={language} onLanguageToggle={setLanguage} />
 
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6 space-y-8">
-        <div className="flex items-center justify-between border-b border-[var(--line)] pb-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-[var(--line)] pb-6 gap-4">
           <div>
             <div className="inline-block px-3 py-1 font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--engrave)] border border-[var(--engrave)] mb-2">
               REAL-TIME THREAT METRICS & VERIFICATION LOGS
@@ -32,6 +47,22 @@ export default function DashboardPage() {
             <p className="text-xs text-[var(--ink-soft)] font-mono tracking-wider">
               Continuous Monitoring across Web, Messaging, and Media Channels
             </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {lastUpdated && (
+              <span className="font-mono text-[10px] text-[var(--ink-soft)] uppercase">
+                {language === "hi" ? `अंतिम अपडेट: ${lastUpdated}` : `Updated: ${lastUpdated}`}
+              </span>
+            )}
+            <button
+              onClick={fetchStats}
+              disabled={loading}
+              className="cbtn text-xs py-1.5 px-3 flex items-center gap-1.5"
+            >
+              <span className={loading ? "animate-spin" : ""}>🔄</span>
+              <span>{language === "hi" ? "ताज़ा करें" : "Refresh"}</span>
+            </button>
           </div>
         </div>
 

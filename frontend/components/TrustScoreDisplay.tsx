@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useMemo } from "react";
-import { ExplainabilityLedger, CheckItem } from "./ExplainabilityLedger";
+import { CheckItem } from "./ExplainabilityLedger";
 
 interface TrustScoreDisplayProps {
   score: number;

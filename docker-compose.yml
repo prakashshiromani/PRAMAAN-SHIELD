@@ -16,6 +16,8 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}
       - IP_HMAC_SALT=${IP_HMAC_SALT}
+      - ENTITY_KEY_PEPPER=${ENTITY_KEY_PEPPER}
+      - REPORT_ACCESS_SECRET=${REPORT_ACCESS_SECRET}
       - UPLOAD_DIR=/tmp/pramaan_uploads
     volumes:
       - ./backend/app/ml/aasist/weights:/app/app/ml/aasist/weights:ro

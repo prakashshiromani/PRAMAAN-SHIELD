@@ -39,3 +39,30 @@ def extract_seal_token(text: str) -> Optional[str]:
         return _normalize_token(match.group(0))
 
     return None
+
+
+def extract_seal_from_image(image_path: str) -> Optional[str]:
+    """
+    Extract PRAMAAN Seal token from an image or screenshot file via QR code decoding.
+    Uses OpenCV's built-in QRCodeDetector (zero extra dependencies).
+    """
+    try:
+        import cv2
+        img = cv2.imread(image_path)
+        if img is None:
+            return None
+
+        detector = cv2.QRCodeDetector()
+        data, _, _ = detector.detectAndDecode(img)
+        if data:
+            token = extract_seal_token(data)
+            if token:
+                return token
+            # Direct PRMN token match in decoded QR data
+            match = re.search(SEAL_TOKEN_REGEX, data, re.IGNORECASE)
+            if match:
+                return _normalize_token(match.group(0))
+    except Exception:
+        pass
+
+    return None

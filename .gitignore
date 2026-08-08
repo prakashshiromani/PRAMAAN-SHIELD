@@ -22,11 +22,14 @@ frontend/.env.local
 *.env.local
 
 # ── 🔐 CRITICAL: Cryptographic Keys — NEVER COMMIT THESE ────────────────────
+*.pem
+*.key
 backend/app/crypto/keys/entities/*.pem
 backend/app/crypto/keys/entities/*.key
 backend/app/crypto/keys/pramaan_ca.pem
 backend/app/crypto/keys/pramaan_ca.key
-!backend/app/crypto/keys/entities/.gitkeep
+!**/entities/.gitkeep
+
 
 # ── ML Model Weights ─────────────────────────────────────────────────────────
 backend/app/ml/aasist/weights/*.pth
@@ -72,3 +75,7 @@ coverage.xml
 # ── Security Scanner Outputs ─────────────────────────────────────────────────
 bandit-report.json
 pip-audit-report.json
+
+# ── Documentation / Local Docs ───────────────────────────────────────────────
+doce/
+

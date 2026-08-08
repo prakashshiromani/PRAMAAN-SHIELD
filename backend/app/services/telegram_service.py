@@ -4,19 +4,19 @@ File: backend/app/services/telegram_service.py
 """
 
 from typing import Dict, Any
-from loguru import logger
-from app.schemas import TelegramVerdictReply, VerdictStatus
+from app.schemas import VerdictStatus
+from app.services.trust_score_service import verdict_for_score
 
 
 def format_telegram_response(scan_res: Dict[str, Any], lang: str = "hi") -> str:
     """Format Telegram MarkdownV2 / HTML message reply."""
     score = scan_res.get("trust_score", 50)
-    verdict = scan_res.get("verdict", VerdictStatus.CAUTION)
+    status = verdict_for_score(score)
 
-    if score >= 70:
+    if status == VerdictStatus.VERIFIED:
         emoji = "🟢"
         verdict_str = "सत्यापित / सुरक्षित" if lang == "hi" else "VERIFIED / SAFE"
-    elif score >= 30:
+    elif status == VerdictStatus.CAUTION:
         emoji = "🟡"
         verdict_str = "सावधान रहें" if lang == "hi" else "EXERCISE CAUTION"
     else:

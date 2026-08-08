@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: pramaan-shield-backend
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    rootDir: backend
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash
+      - key: IP_HMAC_SALT
+        generateValue: true
+      - key: ENTITY_KEY_PEPPER
+        generateValue: true
+      - key: REPORT_ACCESS_SECRET
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: https://pramaan-shield.vercel.app,https://pramaan-shield-frontend.vercel.app
+      - key: MAX_CONCURRENT_SCANS
+        value: "1"
+      - key: TEMP_FILE_TTL_SECONDS
+        value: "60"
+      - key: UPLOAD_DIR
+        value: /tmp/pramaan_uploads

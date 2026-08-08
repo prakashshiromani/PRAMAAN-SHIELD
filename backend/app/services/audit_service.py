@@ -67,6 +67,9 @@ async def log_audit(
     }
 
     db = await get_db()
+    if db is None:
+        logger.warning("Audit log skipped (MongoDB offline)")
+        return "aud_unpersisted"
     await db.audit_ledger.insert_one(record)
     logger.info(f"Audit logged: {action} by {actor_entity} on {resource_id}")
     return audit_id

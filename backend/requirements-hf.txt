@@ -1,0 +1,42 @@
+# Core Framework
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Database & Cache (MongoDB Atlas + Upstash Redis)
+motor>=3.3.2
+redis>=5.0.1
+
+# ML — Video Detection (OpenCV headless for server)
+opencv-contrib-python-headless>=4.8.1.78
+Pillow>=10.1.0
+timm>=0.9.12
+numpy>=1.26.2
+
+# HuggingFace ViT Deepfake model (auto-downloads dima806/deepfake_vs_real_image_detection)
+transformers>=4.37.0
+
+# Hashing (imagehash only — videohash needs ffmpeg binary on PATH)
+imagehash>=4.3.1
+
+# Cryptography
+cryptography>=41.0.7
+qrcode[pil]>=7.4.2
+
+# Gemini API (google-genai SDK)
+google-genai>=2.17.0
+
+# Telegram Bot
+python-telegram-bot>=20.7
+
+# Utilities
+dnspython>=2.4.2
+python-Levenshtein>=0.23.0
+httpx>=0.25.2
+python-dotenv>=1.0.0
+loguru>=0.7.2
+
+# PDF Evidence Package
+reportlab>=4.0.4

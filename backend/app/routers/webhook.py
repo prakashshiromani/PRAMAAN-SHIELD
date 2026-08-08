@@ -8,6 +8,7 @@ Runs actual text phishing pipeline and trust engine aggregation.
 """
 
 from fastapi import APIRouter, Header, Request, HTTPException, status
+import hmac
 from loguru import logger
 from app.config import get_settings
 from app.services.telegram_service import format_telegram_response
@@ -24,6 +25,18 @@ registry_svc = RegistryService()
 phishing_svc = PhishingService(gemini_svc, registry_svc)
 
 
+def _webhook_secret_ok(presented) -> bool:
+    """Constant-time comparison of the Telegram webhook secret (no timing leak)."""
+    expected = settings.TELEGRAM_WEBHOOK_SECRET
+    if not expected:
+        # No secret configured → reject everything. hmac.compare_digest would
+        # also raise on mismatched lengths, which must never become a 500.
+        return False
+    expected = expected.encode("utf-8")
+    presented = (presented or "").encode("utf-8")
+    return hmac.compare_digest(presented, expected)
+
+
 @router.post("/webhook", tags=["webhook"])
 async def telegram_webhook(
     request: Request,
@@ -34,7 +47,7 @@ async def telegram_webhook(
     Enforces header secret token match to block forged updates.
     Runs real detection pipeline on incoming text message.
     """
-    if x_telegram_bot_api_secret_token != settings.TELEGRAM_WEBHOOK_SECRET:
+    if not _webhook_secret_ok(x_telegram_bot_api_secret_token):
         logger.warning("Rejected unauthorized Telegram webhook request: invalid secret token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

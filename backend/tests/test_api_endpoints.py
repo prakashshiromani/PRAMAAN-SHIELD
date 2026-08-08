@@ -79,7 +79,14 @@ def test_verify_seal_endpoint(mock_verify_seal):
 
 
 @patch("app.routers.seal.sign_communication")
-def test_seal_sign_endpoint(mock_sign_comm):
+@patch("app.dependencies.get_db")
+def test_seal_sign_endpoint(mock_db, mock_sign_comm):
+    # Issuers must authenticate with a provisioned, hashed API key derived from
+    # the server's ENTITY_KEY_PEPPER — the old guessable 'key_REGULATOR_2026'
+    # magic key was removed (Issue #02).
+    from app.crypto.seal_engine import entity_api_key, api_key_hash
+    sebi_key = entity_api_key("REGULATOR")
+
     mock_sign_comm.return_value = {
         "seal_id": "PRMN-2026-SEBI-12345",
         "entity_name": "SEBI",
@@ -92,16 +99,39 @@ def test_seal_sign_endpoint(mock_sign_comm):
         "qr_image_url": "/api/seal/PRMN-2026-SEBI-12345/qr"
     }
 
+    async def fake_find_one(filt):
+        # Registry doc consists of db row that our presented key maps to.
+        if filt.get("api_key_hash") == api_key_hash(sebi_key):
+            return {
+                "entity_name": "SEBI",
+                "registration_number": "REGULATOR",
+                "key_status": "active",
+            }
+        return None
+
+    mock_db_inst = AsyncMock()
+    mock_db_inst.sebi_registry.find_one = AsyncMock(side_effect=fake_find_one)
+    mock_db.return_value = mock_db_inst
+
     payload = {
         "content_hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "content_type": "advisory",
         "content_title": "Official Advisory",
-        "validity_days": 90
+        "validity_days": 90,
     }
-    response = client.post("/api/seal/sign", json=payload)
-    assert response.status_code == 200
-    data = response.json()
-    assert data["seal_id"] == "PRMN-2026-SEBI-12345"
+
+    # 200 with a real credentialed key
+    resp_ok = client.post(
+        "/api/seal/sign", json=payload, headers={"X-API-Key": sebi_key}
+    )
+    assert resp_ok.status_code == 200
+    assert resp_ok.json()["seal_id"] == "PRMN-2026-SEBI-12345"
+
+    # 401/403 with a guessable/old-style key must be rejected
+    resp_bad = client.post(
+        "/api/seal/sign", json=payload, headers={"X-API-Key": "key_REGULATOR_2026"}
+    )
+    assert resp_bad.status_code in (401, 403)
 
 
 @patch("app.routers.report.redressal_svc.generate_complaint_report")

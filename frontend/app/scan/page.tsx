@@ -5,44 +5,69 @@ import { TopNav } from "@/components/TopNav";
 import { TrustScoreDisplay } from "@/components/TrustScoreDisplay";
 import { ScanUploader, ContentType } from "@/components/ScanUploader";
 import { ConsentModal } from "@/components/ConsentModal";
-import { scanContent, scanFile, scanText } from "@/lib/api";
+import { scanFile, scanText, scanEmail } from "@/lib/api";
 import { ScanResponse } from "@/lib/types";
 import { useLanguage } from "@/lib/LanguageContext";
 
 export default function ScanPage() {
   const { language, setLanguage } = useLanguage();
   const [textContent, setTextContent] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [contentType, setContentType] = useState<ContentType>("text");
+
+  // Per-tab isolated file state dictionary
+  const [tabFiles, setTabFiles] = useState<Record<ContentType, File | null>>({
+    text: null,
+    audio: null,
+    video: null,
+    image: null,
+    email: null,
+  });
 
   const [scanState, setScanState] = useState<"IDLE" | "SCANNING" | "REVEAL" | "RESULT" | "ERROR">("IDLE");
   const [scanResult, setScanResult] = useState<ScanResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
+  const handleContentTypeChange = (newType: ContentType) => {
+    setContentType(newType);
+    setScanState("IDLE");
+    setScanResult(null);
+    setErrorMessage("");
+  };
+
+  const handleFileSelect = (file: File | null) => {
+    setTabFiles((prev) => ({
+      ...prev,
+      [contentType]: file,
+    }));
+  };
+
+  const activeFile = tabFiles[contentType];
+
   const handleScanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!textContent && !selectedFile) return;
+    if (!textContent && !activeFile) return;
 
     try {
       setScanState("SCANNING");
       setErrorMessage("");
 
+      const noFile = contentType !== "text" && !activeFile;
+      if (noFile) throw new Error("No file provided for scan");
+
       let response: ScanResponse;
       if (contentType === "text") {
         response = await scanText(textContent, language);
-      } else if (selectedFile && (contentType === "audio" || contentType === "video" || contentType === "image")) {
-        response = await scanFile(selectedFile, contentType, language);
+      } else if (contentType === "email") {
+        response = await scanEmail(activeFile!, language);
       } else {
-        const formData = new FormData();
-        formData.append("content_type", contentType);
-        formData.append("language", language);
-        if (selectedFile) formData.append("file", selectedFile);
-        if (textContent) formData.append("text_content", textContent);
-        response = await scanContent(formData);
+        response = await scanFile(activeFile!, contentType, language);
       }
 
       setScanResult(response);
-      setScanState("RESULT");
+      setScanState("REVEAL");
+      setTimeout(() => {
+        setScanState("RESULT");
+      }, 700);
     } catch (err: any) {
       console.error("Scan error details:", err);
       const backendDetail = err.response?.data?.detail;
@@ -84,11 +109,11 @@ export default function ScanPage() {
 
           <ScanUploader
             contentType={contentType}
-            onContentTypeChange={setContentType}
+            onContentTypeChange={handleContentTypeChange}
             textContent={textContent}
             onTextChange={setTextContent}
-            selectedFile={selectedFile}
-            onFileSelect={setSelectedFile}
+            selectedFile={activeFile}
+            onFileSelect={handleFileSelect}
             onSubmit={handleScanSubmit}
             isScanning={scanState === "SCANNING"}
             language={language}
@@ -98,6 +123,18 @@ export default function ScanPage() {
         {errorMessage && (
           <div className="stamp-box w-full text-center">
             ⚠️ {errorMessage}
+          </div>
+        )}
+
+        {scanState === "REVEAL" && (
+          <div className="cert-frame p-8 text-center space-y-4 bg-[var(--paper-2)] border-[var(--engrave)] animate-pulse">
+            <div className="text-4xl animate-bounce">🔏</div>
+            <p className="font-serif-header text-xl text-[var(--engrave)]">
+              {language === "hi" ? "प्रमाण-पत्र स्टैम्प तैयार हो रहा है..." : "EMBOSSING PROOF CERTIFICATE..."}
+            </p>
+            <span className="font-mono text-xs text-[var(--ink-soft)] block uppercase tracking-widest">
+              SEBI SECP256R1 AUDIT LEDGER · CERTIFICATE NO. GENERATION
+            </span>
           </div>
         )}
 

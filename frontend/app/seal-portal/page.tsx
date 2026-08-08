@@ -2,16 +2,9 @@
 
 import React, { useState, useEffect } from "react";
 import { TopNav } from "@/components/TopNav";
-import { issueSeal } from "@/lib/api";
+import { issueSeal, sha256Hex } from "@/lib/api";
 import { IssueSealResponse } from "@/lib/types";
 import { useLanguage } from "@/lib/LanguageContext";
-
-async function sha256Hex(message: string): Promise<string> {
-  const msgUint8 = new TextEncoder().encode(message);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", msgUint8);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 export default function SealPortalPage() {
   const { language, setLanguage } = useLanguage();
@@ -53,7 +46,7 @@ export default function SealPortalPage() {
     } finally {
       setLoading(false);
     }
-  };;
+  };
 
   const signedMessage = issuedSeal
     ? `${messageText.trim()}\n\n[PRAMAAN SEAL CERTIFICATE: ${issuedSeal.seal_id}]`

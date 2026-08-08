@@ -14,7 +14,35 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
 )
+from app.utils.constants import EMPTY_SHA256
 
+
+import base64
+import os
+import re
+from xml.sax.saxutils import escape
+from reportlab.graphics.shapes import Drawing, Rect, String
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+HINDI_FONT_NAME = "Helvetica"
+possible_fonts = [
+    ("C:\\Windows\\Fonts\\Nirmala.ttc", 0),
+    ("C:\\Windows\\Fonts\\mangal.ttf", None),
+    ("/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf", None)
+]
+
+for font_p, sub_idx in possible_fonts:
+    if os.path.exists(font_p):
+        try:
+            if sub_idx is not None:
+                pdfmetrics.registerFont(TTFont('DevanagariFont', font_p, subfontIndex=sub_idx))
+            else:
+                pdfmetrics.registerFont(TTFont('DevanagariFont', font_p))
+            HINDI_FONT_NAME = 'DevanagariFont'
+            break
+        except Exception:
+            pass
 
 def generate_evidence_pdf(
     report_id: str,
@@ -22,12 +50,55 @@ def generate_evidence_pdf(
     content_hash: str = "N/A",
     trust_score: int = 15,
     verdict: str = "SUSPICIOUS",
-    created_at: Optional[str] = None
+    created_at: Optional[str] = None,
+    checks: Optional[list] = None,
+    heatmap_b64: Optional[str] = None,
+    priority_code: Optional[str] = None,
+    scores_custom_text: Optional[str] = None,
+    cyber_custom_text: Optional[str] = None
 ) -> bytes:
     """
     Generates a professional, court-admissible PRAMAAN-SHIELD Evidence Package PDF.
+    Enhanced with visual trust gauge, color-coded checks breakdown, deepfake heatmap,
+    and rich bilingual complaint templates.
     """
     buffer = io.BytesIO()
+
+    def _clean_pdf_text(text: str) -> str:
+        if not text:
+            return ""
+        # If font is Helvetica, and we have Hindi unicode characters, replace with an informative warning
+        # to prevent ReportLab crash.
+        if HINDI_FONT_NAME == "Helvetica" and any(0x0900 <= ord(c) <= 0x097F for c in text):
+            fallback = (
+                "<b>[NOTE: Devanagari font not configured on server. Showing fallback content in English]</b><br/>"
+                "Please configure a Devanagari font (like Nirmala.ttc or Mangal.ttf) in pdf_generator.py "
+                "to support Hindi characters in PDF generation.<br/><br/>"
+            )
+            # Remove Hindi characters to prevent Helvetica crash:
+            non_hindi = "".join(c for c in text if not (0x0900 <= ord(c) <= 0x097F))
+            # Clean up empty lines or multiple line breaks left behind
+            non_hindi = re.sub(r'(<br/>\s*)+', '<br/>', non_hindi)
+            non_hindi = non_hindi.strip().strip("<br/>")
+            if len(non_hindi) < 15:
+                # Fully trusted constant markup — safe to append as-is.
+                return fallback + (
+                    "<b>SEBI SCORES / 1930 Cybercrime Complaint Draft</b><br/>"
+                    f"Scan ID: {scan_id}<br/>"
+                    f"Trust Score: {trust_score}/100<br/>"
+                    f"Content Hash: {content_hash}<br/>"
+                    f"Verdict: {verdict}<br/>"
+                    "Please copy the complaint body from the web dashboard."
+                )
+            # User-derived remainder is XML-escaped before embedding.
+            return fallback + escape(non_hindi)
+
+        # User-controlled content is XML-escaped first; only our own `**` / newline
+        # conversions are applied afterwards, so `<`, `&`, `>` can never inject markup.
+        cleaned = escape(text)
+        cleaned = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', cleaned)
+        cleaned = cleaned.replace('\n', '<br/>')
+        return cleaned
 
     # Document setup with 0.5 inch margins
     doc = SimpleDocTemplate(
@@ -50,7 +121,15 @@ def generate_evidence_pdf(
     COLOR_BG_LIGHT = colors.HexColor("#F7FAFC")
     COLOR_BORDER = colors.HexColor("#E2E8F0")
 
-    verdict_color = COLOR_GREEN if verdict == "VERIFIED" else (COLOR_STAMP_AMBER if verdict == "EXERCISE CAUTION" else COLOR_STAMP_RED)
+    if not scan_id or scan_id in ["N/A", "demo"]:
+        scan_id = f"ps_{report_id.replace('rpt_', '')}"
+    if not content_hash or content_hash in ["N/A", "N/A..."]:
+        content_hash = EMPTY_SHA256
+
+    verdict_color = COLOR_GREEN if verdict == "VERIFIED" else (COLOR_STAMP_AMBER if verdict in ["EXERCISE CAUTION", "CAUTION"] else COLOR_STAMP_RED)
+    # Priority code shared with redressal_service — single source of truth.
+    from app.services.trust_score_service import derive_priority_code
+    p_code = priority_code or derive_priority_code(trust_score, verdict)
 
     # Custom Paragraph Styles
     style_header_title = ParagraphStyle(
@@ -87,7 +166,7 @@ def generate_evidence_pdf(
     style_body = ParagraphStyle(
         "BodyText",
         parent=styles["Normal"],
-        fontName="Helvetica",
+        fontName=HINDI_FONT_NAME,
         fontSize=9.5,
         leading=14,
         textColor=COLOR_DARK
@@ -112,7 +191,7 @@ def generate_evidence_pdf(
         ],
         [
             Paragraph("SEBI TechSprint 2026 - Investor Protection &amp; Fraud Detection Authority", style_subtitle),
-            Paragraph("AUTHENTICATED EVIDENCE PACKAGE", ParagraphStyle("HRight2", parent=style_subtitle, alignment=2, fontName="Helvetica-Bold", textColor=COLOR_TEAL))
+            Paragraph(f"PRIORITY: <b>{p_code}</b>", ParagraphStyle("HRight2", parent=style_subtitle, alignment=2, fontName="Helvetica-Bold", textColor=verdict_color))
         ]
     ]
 
@@ -126,7 +205,7 @@ def generate_evidence_pdf(
     story.append(Spacer(1, 8))
     story.append(HRFlowable(width="100%", thickness=2, color=COLOR_TEAL, spaceBefore=2, spaceAfter=12))
 
-    # 2. Executive Summary Box (Table)
+    # 2. Executive Summary Box
     summary_data = [
         [
             Paragraph("<b>Scan Reference ID:</b>", style_body),
@@ -137,12 +216,12 @@ def generate_evidence_pdf(
         [
             Paragraph("<b>Verdict Status:</b>", style_body),
             Paragraph(f"<font color='{verdict_color.hexval()}'><b>{verdict}</b></font>", style_body),
-            Paragraph("<b>Verification Authority:</b>", style_body),
-            Paragraph("PRAMAAN Engine v1.0", style_body)
+            Paragraph("<b>Verification Priority:</b>", style_body),
+            Paragraph(f"<b>{p_code}</b>", style_body)
         ],
         [
             Paragraph("<b>Content SHA-256:</b>", style_body),
-            Paragraph(f"<font name='Courier'>{content_hash[:48]}...</font>", style_code),
+            Paragraph(f"<font name='Courier'>{content_hash[:40]}...</font>", style_code),
             Paragraph("<b>Target Portals:</b>", style_body),
             Paragraph("SEBI SCORES / 1930 Helpline", style_body)
         ]
@@ -157,22 +236,84 @@ def generate_evidence_pdf(
         ('PADDING', (0,0), (-1,-1), 6),
     ]))
     story.append(summary_table)
-    story.append(Spacer(1, 14))
+    story.append(Spacer(1, 10))
 
-    # 3. Pre-Filled Complaint Draft 1: SEBI SCORES
+    # Visual Trust Gauge Bar
+    gauge_drawing = Drawing(540, 24)
+    gauge_drawing.add(Rect(0, 4, 540, 16, fillColor=colors.HexColor("#E2E8F0"), strokeColor=None, rx=4, ry=4))
+    filled_width = max(10, int(540 * (trust_score / 100.0)))
+    gauge_drawing.add(Rect(0, 4, filled_width, 16, fillColor=verdict_color, strokeColor=None, rx=4, ry=4))
+    gauge_drawing.add(String(240, 7, f"PRAMAAN TRUST INDEX: {trust_score}/100", fontSize=9, fontName="Helvetica-Bold", fillColor=colors.white if trust_score < 70 else COLOR_DARK))
+    story.append(gauge_drawing)
+    story.append(Spacer(1, 12))
+
+    # 3. Color-Coded Check Results Table (if provided)
+    if checks:
+        story.append(Paragraph("DETAILED SECURITY CHECKS BREAKDOWN", style_section_heading))
+        checks_data = [[
+            Paragraph("<b>Module</b>", style_body),
+            Paragraph("<b>Status</b>", style_body),
+            Paragraph("<b>Label / Indicator</b>", style_body),
+            Paragraph("<b>Impact</b>", style_body)
+        ]]
+
+        for c in checks:
+            m_status = str(c.get("status", "skip")).lower()
+            st_color = COLOR_GREEN if m_status == "pass" else (COLOR_STAMP_RED if m_status == "fail" else COLOR_STAMP_AMBER)
+            contrib = c.get("contribution", 0)
+            contrib_str = f"+{contrib}" if contrib > 0 else str(contrib)
+
+            checks_data.append([
+                Paragraph(f"<b>{_clean_pdf_text(c.get('module', '')).upper()}</b>", style_body),
+                Paragraph(f"<font color='{st_color.hexval()}'><b>{_clean_pdf_text(m_status).upper()}</b></font>", style_body),
+                Paragraph(f"<b>{_clean_pdf_text(c.get('label', ''))}</b>: {_clean_pdf_text(c.get('detail', ''))}", style_body),
+                Paragraph(f"<b>{_clean_pdf_text(contrib_str)}</b>", style_body)
+            ])
+
+        checks_table = Table(checks_data, colWidths=[80, 60, 330, 70])
+        checks_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), COLOR_BG_LIGHT),
+            ('BOX', (0,0), (-1,-1), 1, COLOR_BORDER),
+            ('INNERGRID', (0,0), (-1,-1), 0.5, COLOR_BORDER),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('PADDING', (0,0), (-1,-1), 5),
+        ]))
+        story.append(checks_table)
+        story.append(Spacer(1, 12))
+
+    # 4. Deepfake Heatmap Visualization (if provided)
+    if heatmap_b64:
+        try:
+            from reportlab.platypus import Image as RLImage
+            from reportlab.lib.units import inch
+            img_bytes = base64.b64decode(heatmap_b64)
+            img_buf = io.BytesIO(img_bytes)
+            story.append(Paragraph("VIDEO DEEPFAKE MANIPULATION HEATMAP", style_section_heading))
+            story.append(RLImage(img_buf, width=2.5*inch, height=2.5*inch))
+            story.append(Paragraph("<font size=8 color='#718096'>Red/Warm areas indicate neural manipulation artifacts and facial forgery keypoints.</font>", style_subtitle))
+            story.append(Spacer(1, 10))
+        except Exception:
+            pass
+
+
+
+    # 5. Pre-Filled Complaint Draft 1: SEBI SCORES
     story.append(Paragraph("1. SEBI SCORES PORTAL - DRAFT COMPLAINT TEXT", style_section_heading))
-    scores_text = (
-        f"<b>To:</b> SEBI SCORES (Securities and Exchange Board of India)<br/>"
-        f"<b>Subject:</b> SEBI SCORES Complaint: Financial Fraud / Impersonation Scam (Ref: {scan_id[:8]})<br/><br/>"
-        f"<b>Complaint Body:</b><br/>"
-        f"Respected SEBI Officers,<br/>"
-        f"I am submitting this formal complaint regarding an unauthorized financial communication flagged for security violations.<br/><br/>"
-        f"- <b>Scan Reference ID:</b> {scan_id}<br/>"
-        f"- <b>Content SHA-256 Digest:</b> {content_hash}<br/>"
-        f"- <b>PRAMAAN Trust Score:</b> {trust_score}/100 ({verdict})<br/>"
-        f"- <b>Detection Flags:</b> Entity Impersonation, Unofficial Domain Links, High Urgency Panic Language.<br/><br/>"
-        f"Requested Action: Please initiate inquiry and block spoofed domains associated with this communication."
-    )
+    if scores_custom_text:
+        scores_text = _clean_pdf_text(scores_custom_text)
+    else:
+        scores_text = (
+            f"<b>To:</b> SEBI SCORES (Securities and Exchange Board of India)<br/>"
+            f"<b>Subject:</b> SEBI SCORES Complaint: Financial Fraud / Impersonation Scam (Ref: {scan_id[:8]})<br/><br/>"
+            f"<b>Complaint Body:</b><br/>"
+            f"Respected SEBI Officers,<br/>"
+            f"I am submitting this formal complaint regarding an unauthorized financial communication flagged for security violations.<br/><br/>"
+            f"- <b>Scan Reference ID:</b> {scan_id}<br/>"
+            f"- <b>Content SHA-256 Digest:</b> {content_hash}<br/>"
+            f"- <b>PRAMAAN Trust Score:</b> {trust_score}/100 ({verdict})<br/>"
+            f"- <b>Detection Flags:</b> Entity Impersonation, Unofficial Domain Links, High Urgency Panic Language.<br/><br/>"
+            f"Requested Action: Please initiate inquiry and block spoofed domains associated with this communication."
+        )
     scores_box = Table([[Paragraph(scores_text, style_body)]], colWidths=[540])
     scores_box.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#FFFFFF")),
@@ -180,20 +321,23 @@ def generate_evidence_pdf(
         ('PADDING', (0,0), (-1,-1), 10),
     ]))
     story.append(scores_box)
-    story.append(Spacer(1, 14))
+    story.append(Spacer(1, 12))
 
-    # 4. Pre-Filled Complaint Draft 2: 1930 Cybercrime Helpline
+    # 6. Pre-Filled Complaint Draft 2: 1930 Cybercrime Helpline
     story.append(Paragraph("2. 1930 NATIONAL CYBERCRIME REPORTING PORTAL - DRAFT TEXT", style_section_heading))
-    cyber_text = (
-        f"<b>To:</b> National Cyber Crime Reporting Helpline (1930 / cybercrime.gov.in)<br/>"
-        f"<b>Subject:</b> Cyber Fraud Incident Report - Financial Phishing Scam<br/><br/>"
-        f"<b>Incident Details:</b><br/>"
-        f"- <b>Incident Category:</b> Financial Phishing &amp; Demat Impersonation Fraud<br/>"
-        f"- <b>Evidence Hash:</b> {content_hash}<br/>"
-        f"- <b>Risk Index:</b> {trust_score}/100 ({verdict})<br/>"
-        f"- <b>Timestamp:</b> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br/><br/>"
-        f"Description: Threat/urgency message claiming Demat suspension and requesting immediate login on spoofed domain. Auto-generated evidence package attached."
-    )
+    if cyber_custom_text:
+        cyber_text = _clean_pdf_text(cyber_custom_text)
+    else:
+        cyber_text = (
+            f"<b>To:</b> National Cyber Crime Reporting Helpline (1930 / cybercrime.gov.in)<br/>"
+            f"<b>Subject:</b> Cyber Fraud Incident Report - Financial Phishing Scam<br/><br/>"
+            f"<b>Incident Details:</b><br/>"
+            f"- <b>Incident Category:</b> Financial Phishing &amp; Demat Impersonation Fraud<br/>"
+            f"- <b>Evidence Hash:</b> {content_hash}<br/>"
+            f"- <b>Risk Index:</b> {trust_score}/100 ({verdict})<br/>"
+            f"- <b>Timestamp:</b> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br/><br/>"
+            f"Description: Threat/urgency message claiming Demat suspension and requesting immediate login on spoofed domain. Auto-generated evidence package attached."
+        )
     cyber_box = Table([[Paragraph(cyber_text, style_body)]], colWidths=[540])
     cyber_box.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#FFFFFF")),
@@ -201,9 +345,9 @@ def generate_evidence_pdf(
         ('PADDING', (0,0), (-1,-1), 10),
     ]))
     story.append(cyber_box)
-    story.append(Spacer(1, 16))
+    story.append(Spacer(1, 14))
 
-    # 5. Certification Footer
+    # 7. Certification Footer
     story.append(HRFlowable(width="100%", thickness=1, color=COLOR_BORDER, spaceBefore=4, spaceAfter=8))
     footer_text = (
         f"<font color='#718096'><b>DIGITAL SIGNATURE &amp; EVIDENCE PROOF:</b> This PDF evidence package is automatically generated by PRAMAAN-SHIELD Engine for SEBI TechSprint 2026. Hash verification: {content_hash[:32]}... Verifiable online at /verify.</font>"

@@ -38,3 +38,19 @@ def ensure_upload_dir():
     upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
     return upload_dir
+
+
+def cleanup_all_temp_files():
+    """Wipe all temporary files from UPLOAD_DIR on server startup/lifespan startup."""
+    try:
+        upload_dir = Path(settings.UPLOAD_DIR)
+        if upload_dir.exists() and upload_dir.is_dir():
+            count = 0
+            for item in upload_dir.iterdir():
+                if item.is_file() and item.name != ".gitkeep":
+                    item.unlink()
+                    count += 1
+            if count > 0:
+                logger.info(f"Startup cleanup: wiped {count} orphaned temporary upload files from {settings.UPLOAD_DIR}")
+    except Exception as e:
+        logger.error(f"Failed to execute startup file cleanup: {e}")

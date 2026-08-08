@@ -7,6 +7,8 @@ video deepfake detector (TRD §8.4). Uses the decoder bundled with
 opencv-python, so it works without a system `ffmpeg` binary on PATH.
 """
 
+import math
+
 from typing import List
 
 import cv2
@@ -66,21 +68,44 @@ def temporal_consistency(frames: List[np.ndarray]) -> float:
     Face-swap pipelines re-render each frame independently, so the boundary
     between the swapped region and the source flickers — that shows up as
     lower correlation than an untouched capture of the same scene.
+
+    Constant/near-flat frames (fade-to-black, solid colour screens) carry no
+    temporal signal at all: their histogram degenerates to a single dominant
+    bin, and OpenCV's HISTCMP_CORREL then reports ~1.0 for ANY two such
+    frames — even two completely different scenes. Those frames are excluded
+    from the comparison so a degenerate clip can neither certify a video as
+    authentic nor incriminate it.
     """
     if len(frames) < 2:
         return 1.0
 
+    # Neutral value inside the "no gate fires" band (0.90–0.95): used when
+    # there is not enough structured signal to compare at all.
+    NO_SIGNAL = 0.92
+
     histograms = []
     for frame in frames:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Near-zero pixel variance => constant frame => no temporal signal.
+        if float(gray.std()) < 6.0:
+            continue
         hist = cv2.calcHist([gray], [0], None, [64], [0, 256])
         cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
         histograms.append(hist)
 
-    correlations = [
-        cv2.compareHist(histograms[i], histograms[i + 1], cv2.HISTCMP_CORREL)
-        for i in range(len(histograms) - 1)
-    ]
+    if len(histograms) < 2:
+        return NO_SIGNAL
+
+    correlations = []
+    for i in range(len(histograms) - 1):
+        corr = cv2.compareHist(histograms[i], histograms[i + 1], cv2.HISTCMP_CORREL)
+        if math.isnan(corr):
+            continue
+        correlations.append(corr)
+
+    if not correlations:
+        return NO_SIGNAL
+
     return round(max(0.0, min(1.0, float(np.mean(correlations)))), 3)
 
 
@@ -134,12 +159,20 @@ def calculate_blink_rate(frames: List[np.ndarray]) -> float:
     Returns 0.0 if no reliable detection can be performed.
     """
     try:
-        if not hasattr(cv2, "data") or not hasattr(cv2.data, "haarcascades"):
-            return 0.0
+        from pathlib import Path
+        from cv2 import CascadeClassifier
+        local_path = Path(__file__).parent.parent / "ml" / "deepfake" / "weights" / "haarcascade_eye.xml"
+        eye_cascade = None
+        if local_path.exists():
+            eye_cascade = CascadeClassifier(str(local_path))
 
-        eye_cascade_path = f"{cv2.data.haarcascades}haarcascade_eye.xml"
-        eye_cascade = cv2.CascadeClassifier(eye_cascade_path)
-        if eye_cascade.empty():
+        if (eye_cascade is None or eye_cascade.empty()) and hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades"):
+            sys_path = Path(cv2.data.haarcascades) / "haarcascade_eye.xml"
+            if sys_path.exists():
+                eye_cascade = CascadeClassifier(str(sys_path))
+
+        if eye_cascade is None or eye_cascade.empty():
+            logger.warning("Eye HaarCascade classifier not found")
             return 0.0
 
         prev_eyes_detected = True
@@ -199,7 +232,7 @@ def rppg_pulse_score(face_crops: List[np.ndarray], sampled_fps: float = 3.0) -> 
     default = {"pulse_detected": False, "bpm_estimate": 0.0, "liveness_boost": 0}
 
     try:
-        if len(face_crops) < 8:
+        if len(face_crops) < 12:
             return default
 
         green_means: List[float] = []
@@ -228,18 +261,32 @@ def rppg_pulse_score(face_crops: List[np.ndarray], sampled_fps: float = 3.0) -> 
         total_power = np.sum(fft_mag[1:]) + 1e-10  # Exclude DC
         cardiac_ratio = float(np.sum(cardiac_power) / total_power)
 
-        peak_idx = np.argmax(cardiac_power)
-        peak_freq = freqs[cardiac_mask][peak_idx]
+        peak_idx_cardiac = np.argmax(cardiac_power)
+        peak_freq = freqs[cardiac_mask][peak_idx_cardiac]
         bpm = float(peak_freq * 60.0)
 
-        # Pulse is "detected" when cardiac band contains meaningful energy
-        pulse_detected = cardiac_ratio > 0.15 and 48.0 <= bpm <= 120.0
+        # Get global index of the peak frequency
+        peak_global_idx = np.where(freqs == peak_freq)[0][0]
+        # Calculate SNR: peak power divided by mean power of other non-DC frequencies
+        non_peak_mask = np.ones_like(fft_mag, dtype=bool)
+        non_peak_mask[0] = False # Exclude DC
+        non_peak_mask[peak_global_idx] = False
+        mean_noise_power = np.mean(fft_mag[non_peak_mask]) if np.any(non_peak_mask) else 1e-10
+        peak_power = fft_mag[peak_global_idx]
+        snr = peak_power / (mean_noise_power + 1e-10)
+
+        # For a genuine heartbeat, we expect:
+        # - Sufficient number of frames (at least 12)
+        # - The cardiac band contains a meaningful portion of the power (cardiac_ratio > 0.30)
+        # - The peak is sharp and dominant (snr > 2.2)
+        # - BPM is within normal human resting range (48 to 120 BPM)
+        pulse_detected = len(face_crops) >= 12 and snr > 2.2 and cardiac_ratio > 0.30 and 48.0 <= bpm <= 120.0
 
         liveness_boost = 10 if pulse_detected else -5
 
         logger.info(
             f"rPPG analysis: pulse={'yes' if pulse_detected else 'no'}, "
-            f"BPM≈{bpm:.1f}, cardiac_ratio={cardiac_ratio:.3f}"
+            f"BPM≈{bpm:.1f}, cardiac_ratio={cardiac_ratio:.3f}, snr={snr:.3f}"
         )
 
         return {

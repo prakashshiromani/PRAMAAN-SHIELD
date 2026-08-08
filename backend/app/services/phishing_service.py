@@ -4,15 +4,15 @@ File: backend/app/services/phishing_service.py
 """
 
 import re
-import json
+import asyncio
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 from loguru import logger
 
 from app.services.gemini_service import GeminiService
-from app.services.registry_service import RegistryService, RegistryResult
+from app.services.registry_service import RegistryService, RegistryResult, validate_reg_no_format
 from app.utils.levenshtein import check_typosquatting, extract_domain, LEGITIMATE_DOMAINS
+from app.utils.json_io import load_json_data
 
 
 @dataclass
@@ -64,13 +64,11 @@ class PhishingPipelineResult:
 
 def load_urgency_patterns() -> List[str]:
     """Load Hindi and English urgency keywords."""
-    path = Path("app/data/urgency_patterns.json")
-    if not path.exists():
+    data = load_json_data("urgency_patterns.json", default=None)
+    if not data:
         return ["blocked", "suspended", "urgent", "2000%", "guaranteed returns", "खाता बंद"]
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        patterns = data.get("patterns", {})
-        return patterns.get("en", []) + patterns.get("hi", [])
+    patterns = data.get("patterns", {})
+    return patterns.get("en", []) + patterns.get("hi", [])
 
 
 URGENCY_PATTERNS = load_urgency_patterns()
@@ -94,6 +92,46 @@ ACCOUNT_THREAT_KEYWORDS = [
     "खाता बंद", "खाता ब्लॉक", "खाता फ्रीज", "डीमैट खाता", "केवाईसी",
     "24 घंटे", "अंतिम चेतावनी", "कानूनी कार्रवाई", "तत्काल"
 ]
+
+# Deterministic prompt-injection / instruction-override detector. This is a HARD
+# GATE, so it runs on EVERY scan regardless of Gemini health. Previously the
+# injection gate read `injection_attempt` ONLY from the LLM, and gemini_service
+# forces that flag to False on every degraded path — so the same input scanned
+# while the LLM was down silently dropped a red hard gate that a healthy scan
+# fired. HIGH PRECISION by design: patterns require explicit meta-instructions
+# ("ignore previous instructions", "system: you are", ...) and never bare words
+# like "ignore" or "system", so ordinary scam copy does not false-positive.
+_INJECTION_PATTERNS = [
+    re.compile(r"ignore\s+(all\s+)?(previous|prior)\s+(instructions?|messages?)"),
+    re.compile(r"ignore\s+(the\s+)?(system|developer|above|prior)\s+(prompt|instructions?|message)"),
+    re.compile(r"ignore\s+your\s+(instructions?|guidelines|rules|prompt)"),
+    re.compile(r"disregard\s+(all\s+)?(previous|prior|above)\s+(instructions?|messages?|rules)"),
+    re.compile(r"disregard\s+your\s+(instructions?|rules|guidelines)"),
+    re.compile(r"forget\s+(all\s+)?(your|the)\s+(rules|instructions?|guidelines|previous|above)"),
+    re.compile(r"forget\s+everything\s+(above|before|previously)"),
+    re.compile(r"override\s+(your\s+|the\s+|system\s+)?(instructions?|rules|guidelines|prompt|settings|safeguards?)"),
+    re.compile(r"bypass\s+(your\s+|the\s+)?(rules|guidelines|restrictions|safeguards?|security)"),
+    re.compile(r"do\s+not\s+(follow|obey|honou?r)\s+(your\s+|the\s+)?(rules|instructions?|guidelines)"),
+    re.compile(r"you\s+are\s+now\s+(an?\s+)?(not|no\s+longer|free\s+from|a\s+new)"),
+    re.compile(r"act\s+as\s+if\s+you\s+(have\s+no|don'?t\s+have)\s+(rules|restrictions|limits)"),
+    re.compile(r"(system|developer)\s*(prompt)?\s*:\s*(you\s+are|forget|ignore)"),
+    re.compile(r"new\s+system\s+(prompt|instructions?)"),
+    re.compile(r"jailbreak"),
+]
+
+
+def detect_prompt_injection(text: str) -> bool:
+    """Deterministic heuristic for instruction-override / prompt-injection text.
+
+    Returns True only on an unambiguous override instruction. Gemini's own
+    injection assessment remains available as an advisory detail line and can
+    never ADD or REMOVE this gate — so the verdict is byte-identical whether the
+    LLM is healthy or degraded.
+    """
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(p.search(lowered) for p in _INJECTION_PATTERNS)
 
 
 def calculate_investment_scam_score(text: str) -> int:
@@ -145,12 +183,27 @@ class PhishingService:
         """Run the 4-layer phishing detection pipeline."""
         details = []
 
-        # Layer 1: AI-Generated Text Detection
-        ai_res = await self.gemini.detect_ai_text(text)
-        if ai_res.probability > 0.7:
+        # Layer 1 & 4 (AI-text + NER) are two independent LLM calls — run them
+        # concurrently to halve total LLM latency for a scan.
+        ai_task = self.gemini.detect_ai_text(text)
+        ner_task = self.gemini.extract_entities(text)
+        ai_res, ner_res = await asyncio.gather(ai_task, ner_task)
+        # Determinism contract: a degraded advisory layer (Gemini blocked/404/timeout)
+        # MUST contribute nothing to the pipeline result. `ai_res.probability` is
+        # already 0.0 and both `injection_attempt` flags are False on every degraded
+        # return path in gemini_service.py — but we gate the math explicitly anyway so
+        # a future non-zero degraded probability can never leak a non-deterministic
+        # contribution into overall_phishing_score.
+        ai_degraded = getattr(ai_res, "degraded", False) or getattr(ner_res, "degraded", False)
+        if not ai_degraded and ai_res.probability > 0.7:
             details.append(f"AI-Generated Text: {round(ai_res.probability * 100)}% probability ({ai_res.perplexity} perplexity)")
-
-        # Layer 2: Urgency & Phishing Pattern Classifier
+        # Deterministic prompt-injection HARD GATE — computed from the local regex
+        # detector above, never from the LLM. The LLM's own injection verdict is
+        # advisory only: it can add a detail line but can never flip the gate, so
+        # a degraded LLM cannot silently drop the red gate (see detect_prompt_injection).
+        heuristic_injection = detect_prompt_injection(text)
+        if not ai_degraded and (ai_res.injection_attempt or ner_res.injection_attempt):
+            details.append("Prompt injection attempt detected against AI analysis (advisory — heuristic gate is authoritative)")
         # Separate urgency scores: account threats vs investment scam tips
         text_lower = text.lower()
         account_threat_hits = sum(1 for kw in ACCOUNT_THREAT_KEYWORDS if kw.lower() in text_lower)
@@ -179,11 +232,22 @@ class PhishingService:
         else:
             typo_res = TyposquatResult(False, None, None, 0)
 
-        # Layer 4: SEBI Registry Cross-Check
-        ner_res = await self.gemini.extract_entities(text)
-        reg_res = await self.registry.check_entities(ner_res.entities, domains=found_urls)
+        # Layer 4: SEBI Registry Cross-Check.
+        # DETERMINISM: the score-affecting registry match must be identical whether
+        # or not Gemini is healthy. LLM NER (ner_res.entities) is a superset when
+        # healthy and a fixed heuristic set when degraded, so a boost keyed on it
+        # would flip with Gemini health. Instead the check ALWAYS runs on the
+        # deterministic heuristic entity set (covers the full offline registry);
+        # LLM NER remains advisory (detail line / response metadata) and can never
+        # change the registry boost or entity binding.
+        deterministic_entities = self.gemini._heuristic_entity_fallback(text)
+        reg_res = await self.registry.check_entities(deterministic_entities, domains=found_urls)
         if reg_res.found:
             details.append(f"SEBI Registry Match: Matched official entity '{reg_res.matched_entity}' ({reg_res.registration_number})")
+        elif not ai_degraded and ner_res.entities:
+            llm_names = ", ".join(e.get("name", "") for e in ner_res.entities if e.get("name"))
+            if llm_names:
+                details.append(f"LLM advisory: content references '{llm_names}' — no deterministic registry match")
 
         # Layer 4.5: Entity-Domain Binding Evaluation
         binding_status = "none"
@@ -201,22 +265,28 @@ class PhishingService:
                     if not is_official:
                         offending.append(dom)
 
-                if not offending:
+                # Exclude standard email recipient/test domains (example.com, gmail.com, etc.)
+                SAFE_RECIPIENT_DOMAINS = {"example.com", "example.org", "example.net", "gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com"}
+                real_offending = [d for d in offending if d not in SAFE_RECIPIENT_DOMAINS]
+
+                if not real_offending:
                     binding_status = "bound"
                 else:
-                    legit_offending = [d for d in offending if d in LEGITIMATE_DOMAINS]
-                    if len(legit_offending) == len(offending):
+                    legit_offending = [d for d in real_offending if d in LEGITIMATE_DOMAINS]
+                    if len(legit_offending) == len(real_offending):
                         binding_status = "unbound"
                     else:
                         binding_status = "impersonation"
-                        offending_domains = [d for d in offending if d not in LEGITIMATE_DOMAINS]
+                        offending_domains = [d for d in real_offending if d not in LEGITIMATE_DOMAINS]
 
         # Check for SEBI registration number mismatch in text (e.g. INZ000032623 vs official INZ000031633)
-        text_reg_matches = re.findall(r'IN[ZBFPA0-9]{8,10}', text, re.IGNORECASE)
+        raw_reg_matches = re.findall(r'\b(?:IN[ZBFPAHMR0-9\-\s]{8,18})\b', text, re.IGNORECASE)
+        from app.services.registry_service import canonicalize_reg_no
+        text_reg_matches = [canonicalize_reg_no(m) for m in raw_reg_matches if validate_reg_no_format(m)]
 
         if reg_res.found and text_reg_matches:
-            expected_reg = (reg_res.registration_number or "").strip().upper()
-            found_reg = text_reg_matches[0].strip().upper()
+            expected_reg = canonicalize_reg_no(reg_res.registration_number)
+            found_reg = canonicalize_reg_no(text_reg_matches[0])
             if expected_reg and found_reg != expected_reg:
                 binding_status = "impersonation"
                 offending_domains.append(f"Fake Reg: {found_reg}")
@@ -229,22 +299,26 @@ class PhishingService:
             official_domains=official_domains
         )
 
-        # Calculate Aggregate Phishing Score (0.0 - 10.0)
+        # Calculate Aggregate Phishing Score (0.0 - 10.0) — FULLY DETERMINISTIC.
+        # The LLM probability term and the LLM injection bump used to be added on
+        # the healthy path only, so overall_phishing_score (and the soft deduction
+        # it gates in trust_score_service) differed by Gemini health. Now the
+        # aggregate is built ONLY from deterministic signals (urgency, typosquat,
+        # entity binding, registry miss). LLM output still surfaces as the advisory
+        # ai_generated_probability field and detail lines — it can never move the
+        # composite trust score, so identical input → identical score and verdict
+        # whether Gemini is up, down, or flapping.
         overall_score = 0.0
-        if ai_res.probability > 0.5:
-            overall_score += ai_res.probability * 3.0
         if urgency_score > 4:
             overall_score += (urgency_score / 10.0) * 3.0
         if typo_res.has_typosquat:
             overall_score += 4.0
         if binding_status == "impersonation":
             overall_score += 4.0
-        if not reg_res.found and len(ner_res.entities) > 0:
+        if not reg_res.found and len(deterministic_entities) > 0:
             overall_score += 2.0
 
         overall_score = min(10.0, round(overall_score, 1))
-
-        ai_degraded = getattr(ai_res, "degraded", False) or getattr(ner_res, "degraded", False)
 
         return PhishingPipelineResult(
             ai_generated_probability=ai_res.probability,
@@ -254,7 +328,7 @@ class PhishingService:
             registry_match=reg_res,
             overall_phishing_score=overall_score,
             details=details,
-            injection_attempt=ai_res.injection_attempt or ner_res.injection_attempt,
+            injection_attempt=heuristic_injection,
             entity_binding=entity_binding,
             ai_degraded=ai_degraded
         )

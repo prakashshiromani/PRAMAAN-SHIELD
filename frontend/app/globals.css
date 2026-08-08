@@ -199,15 +199,9 @@
     background: transparent;
   }
 
-  .stamp-box--ok {
+  .stamp-box.ok {
     color: var(--engrave);
     border-color: var(--engrave);
-    transform: rotate(0deg);
-  }
-
-  .stamp-box--foil {
-    color: var(--foil);
-    border-color: var(--foil);
     transform: rotate(0deg);
   }
 
@@ -425,6 +419,29 @@
   }
 
   .tabular { font-variant-numeric: tabular-nums; }
+
+  /* Entrances/exits used by the scan telemetry bar. The classes alone were
+     previously inert because the @keyframes below did not exist. */
+  .animate-fade-in {
+    animation: fade-in 400ms ease-out both;
+  }
+
+  .animate-shimmer {
+    background-size: 200% 100%;
+    animation: shimmer 1.8s linear infinite;
+  }
+}
+
+/* Shimmer sweep — powers .skeleton and .animate-shimmer. */
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -100% 0; }
+}
+
+/* Soft entrance — powers .animate-fade-in. */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* ── Scrollbar ─────────────────────────────────────────────── */

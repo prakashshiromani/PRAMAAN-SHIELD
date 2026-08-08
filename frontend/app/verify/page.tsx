@@ -3,13 +3,14 @@
 import React, { useState } from "react";
 import { TopNav } from "@/components/TopNav";
 import { QRScanner } from "@/components/QRScanner";
-import { verifySeal } from "@/lib/api";
+import { verifySeal, sha256Hex } from "@/lib/api";
 import { SealVerifyResponse } from "@/lib/types";
 import { useLanguage } from "@/lib/LanguageContext";
 
 export default function VerifyPage() {
   const { language, setLanguage } = useLanguage();
   const [sealId, setSealId] = useState("");
+  const [docText, setDocText] = useState("");
   const [showCameraScanner, setShowCameraScanner] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -26,7 +27,15 @@ export default function VerifyPage() {
       setErrorMsg("");
       setVerifyResult(null);
 
-      const res = await verifySeal(queryId.trim());
+      let contentHash = undefined;
+      if (docText.trim()) {
+        // Strip appended [PRAMAAN SEAL CERTIFICATE: ...] tag before computing SHA-256 hash
+        const cleanText = docText.trim().replace(/\[PRAMAAN\s+SEAL\s+CERTIFICATE:.*?\]/gi, "").trim();
+        const hash = await sha256Hex(cleanText);
+        contentHash = `sha256:${hash}`;
+      }
+
+      const res = await verifySeal(queryId.trim(), undefined, contentHash);
       setVerifyResult(res);
     } catch (err: any) {
       setErrorMsg(
@@ -119,6 +128,19 @@ export default function VerifyPage() {
                 />
               </div>
 
+              <div className="space-y-2">
+                <label className="cfield-label">
+                  {language === "hi" ? "दस्तावेज़ टेक्स्ट (वैकल्पिक, सामग्री अखंडता जांचने के लिए):" : "Document Text (Optional, to check content integrity):"}
+                </label>
+                <textarea
+                  rows={3}
+                  value={docText}
+                  onChange={(e) => setDocText(e.target.value)}
+                  placeholder={language === "hi" ? "सर्कुलर या नोटिस का टेक्स्ट यहाँ पेस्ट करें..." : "Paste circular or notice text here..."}
+                  className="cfield w-full font-body-spectral"
+                />
+              </div>
+
               <button
                 type="submit"
                 disabled={loading || !sealId.trim()}
@@ -194,6 +216,17 @@ export default function VerifyPage() {
               <div className="p-3 bg-[var(--paper)] border border-[var(--line-ink)] rounded">
                 <span className="text-[var(--ink-soft)] block text-[10px] uppercase">Content SHA-256:</span>
                 <span className="text-[var(--engrave)] truncate block">{verifyResult.content_hash || "Intact"}</span>
+              </div>
+
+              <div className="p-3 bg-[var(--paper)] border border-[var(--line-ink)] rounded col-span-2">
+                <span className="text-[var(--ink-soft)] block text-[10px] uppercase">Content Verification Status:</span>
+                <span className={`font-bold ${verifyResult.verdict === "TAMPERED" ? "text-[var(--stamp)]" : (verifyResult.content_match ? "text-[var(--engrave)]" : "text-[var(--ink)]")}`}>
+                  {verifyResult.verdict === "TAMPERED"
+                    ? (language === "hi" ? "🚫 सामग्री बदली गई है (TAMPERED) — छेड़छाड़!" : "🚫 Content Modified (TAMPERED) — Spoofed/Altered!")
+                    : (verifyResult.content_match
+                        ? (language === "hi" ? "✅ सामग्री अखंडित है — हस्ताक्षर के बाद कोई बदलाव नहीं किया गया।" : "✅ Content Intact — Matches the registered signature.")
+                        : (language === "hi" ? "🔍 मूल सील सत्यापित (सामग्री टेक्स्ट प्रदान नहीं किया गया)" : "🔍 Seal Valid (No document text presented for content match)"))}
+                </span>
               </div>
             </div>
           </div>

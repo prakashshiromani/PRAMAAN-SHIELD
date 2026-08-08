@@ -7,9 +7,19 @@ import type {
   SealIssueResponse,
 } from './types';
 
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+/** SHA-256 hex digest via Web Crypto (shared by verify & seal-portal pages). */
+export async function sha256Hex(message: string): Promise<string> {
+  const msgUint8 = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", msgUint8);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-  timeout: 30_000,
+  baseURL: API_BASE_URL,
+  timeout: 120_000,
 });
 
 /* ────────────────────────────────────────────────────
@@ -27,7 +37,7 @@ export async function scanText(
   formData.append('language', language);
 
   const { data } = await api.post<ScanResponse>('/api/scan', formData, {
-    headers: { 'Content-Type': undefined },
+    timeout: 120_000,
   });
   return data;
 }
@@ -44,8 +54,7 @@ export async function scanFile(
   formData.append('language', language);
 
   const { data } = await api.post<ScanResponse>('/api/scan', formData, {
-    headers: { 'Content-Type': undefined },
-    timeout: 90_000,
+    timeout: 120_000,
   });
   return data;
 }
@@ -61,8 +70,7 @@ export async function scanEmail(
   formData.append('language', language);
 
   const { data } = await api.post<ScanResponse>('/api/scan', formData, {
-    headers: { 'Content-Type': undefined },
-    timeout: 30_000,
+    timeout: 120_000,
   });
   return data;
 }
@@ -74,7 +82,6 @@ export async function scanContent(
 ): Promise<ScanResponse> {
   if (input instanceof FormData) {
     const { data } = await api.post<ScanResponse>('/api/scan', input, {
-      headers: { 'Content-Type': undefined },
       timeout: 90_000,
     });
     return data;
@@ -94,16 +101,18 @@ export async function scanContent(
    PILLAR B — AUTHENTICATE (PRAMAAN Seal)
 ──────────────────────────────────────────────────── */
 
-/** Verify a PRAMAAN Seal by ID or QR payload */
+/** Verify a PRAMAAN Seal by ID or QR payload and optional presented content hash */
 export async function verifySeal(
   sealIdOrPayload: string | { seal_id: string; qr_payload?: string },
-  qrPayload?: string
+  qrPayload?: string,
+  presentedContentHash?: string
 ): Promise<VerifySealResponse> {
   const seal_id = typeof sealIdOrPayload === 'string' ? sealIdOrPayload : sealIdOrPayload.seal_id;
   const qr_payload = typeof sealIdOrPayload === 'string' ? qrPayload : sealIdOrPayload.qr_payload;
   const { data } = await api.post<VerifySealResponse>('/api/verify', {
     seal_id,
     qr_payload,
+    presented_content_hash: presentedContentHash,
   });
   return data;
 }
@@ -126,8 +135,21 @@ export async function issueSeal(payload: {
     content_title: payload.content_title || 'Official Communication',
     validity_days: payload.validity_days || 90,
   };
-  const { data } = await api.post<SealIssueResponse>('/api/seal/sign', body);
-  return data;
+
+  // Issuer key never enters the browser bundle. It lives server-side in the
+  // Next.js route handler /app/api/issue-seal/route.ts (SEAL_API_KEY env) which
+  // proxies to the backend with the X-API-Key header. Same-origin fetch — do NOT
+  // use the axios instance (its baseURL is the backend, not the Next server).
+  const res = await fetch('/api/issue-seal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.detail || `Seal issuance failed (${res.status})`);
+  }
+  return data as SealIssueResponse;
 }
 
 /* ────────────────────────────────────────────────────
@@ -150,30 +172,13 @@ export async function generateReport(payload: {
   return data;
 }
 
-/** Download a pre-generated SCORES evidence PDF */
-export async function downloadReport(reportId: string): Promise<Blob> {
-  const { data } = await api.get(`/api/report/${reportId}/pdf`, {
-    responseType: 'blob',
-  });
-  return data;
-}
-
 /* ────────────────────────────────────────────────────
    DASHBOARD / HEALTH
-──────────────────────────────────────────────────── */
+   ───────────────────────────────────────────────────── */
 
 export async function getDashboardStats(): Promise<DashboardStatsResponse> {
   const { data } = await api.get<DashboardStatsResponse>('/api/dashboard/stats');
   return data;
-}
-
-export async function checkHealth(): Promise<boolean> {
-  try {
-    await api.get('/health');
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export default api;

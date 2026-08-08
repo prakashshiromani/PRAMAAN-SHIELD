@@ -70,7 +70,7 @@ export interface DashboardStatsResponse {
   total_fakes_detected: number;
   total_seals_verified: number;
   reports_generated: number;
-  top_flagged_domains: Record<string, number>[];
+  top_flagged_domains: { domain: string; count: number }[];
   threat_distribution: Record<string, number>;
 }
 
@@ -86,6 +86,7 @@ export interface GenerateReportResponse {
   report_id: string;
   status: 'SUBMITTED' | 'PROCESSING' | 'COMPLETED';
   templates: ComplaintTemplate[];
+  pdf_download_url?: string;
   scores_packet_url?: string;
   cybercrime_1930_url?: string;
   created_at: string;
@@ -109,23 +110,3 @@ export interface SealIssueResponse {
 }
 
 export type IssueSealResponse = SealIssueResponse;
-
-export interface ErrorResponse {
-  error: true;
-  status_code: number;
-  error_type: string;
-  message: string;
-  request_id?: string;
-}
-
-export function getTrustScoreColor(score: number): string {
-  if (score >= 70) return '#22c55e';
-  if (score >= 30) return '#eab308';
-  return '#ef4444';
-}
-
-export function getTrustScoreEmoji(score: number): string {
-  if (score >= 70) return '🟢';
-  if (score >= 30) return '🟡';
-  return '🔴';
-}

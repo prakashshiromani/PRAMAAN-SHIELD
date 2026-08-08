@@ -30,7 +30,7 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
-      <body className="bg-[var(--bg)] text-[var(--text)] antialiased min-h-screen">
+      <body className="bg-[var(--paper)] text-[var(--ink)] antialiased min-h-screen">
         <LanguageProvider>
           <main className="min-h-screen">
             {children}

@@ -10,12 +10,13 @@ Seeds:
 asyncio_import = True
 import asyncio
 import json
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 from cryptography.hazmat.primitives import serialization
 from app.db.mongodb import connect_to_mongo, get_db
-from app.db.redis import connect_to_redis, get_redis, key_video_hash, key_hash_family
-from app.crypto.seal_engine import generate_entity_keypair
+from app.db.redis import connect_to_redis, get_redis, key_video_hash, key_image_hash, key_hash_family
+from app.crypto.seal_engine import generate_entity_keypair, entity_api_key, api_key_hash
 from app.services.audit_service import log_audit
 from loguru import logger
 
@@ -376,6 +377,7 @@ async def seed_entities():
 
         doc = {
             **entity_data,
+            "api_key_hash": api_key_hash(entity_api_key(reg_no)),
             "official_public_key": public_key_pem,
             "cert_fingerprint": cert_fingerprint,
             "key_status": "active",
@@ -421,7 +423,10 @@ async def seed_known_fakes():
             "detection_count": fake["detection_count"],
             "severity": fake["severity"]
         })
-        key = key_video_hash(fake["perceptual_hash"].replace("phash:", ""))
+        if fake.get("content_type") == "image":
+            key = key_image_hash(fake["perceptual_hash"].replace("phash:", ""))
+        else:
+            key = key_video_hash(fake["perceptual_hash"].replace("phash:", ""))
         await redis.set(key, redis_payload)
 
         if fake.get("hash_family"):
@@ -440,4 +445,7 @@ async def seed_all():
 
 
 if __name__ == "__main__":
+    # NOTE: No issuer keys are written to disk here. Keys are derived in-app from
+    # ENTITIES_API_KEYS_V1 (env/secret). Minting a tangible secrets file was removed —
+    # a plaintext copy on disk is itself the leak (audit Issue 02).
     asyncio.run(seed_all())

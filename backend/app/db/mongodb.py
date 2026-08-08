@@ -40,6 +40,7 @@ SEBI_REGISTRY_SCHEMA = {
             "official_emails":      {"bsonType": "array",
                                      "items": {"bsonType": "string"}},
             "official_public_key":  {"bsonType": "string"},  # PEM format
+            "api_key_hash":         {"bsonType": "string"},  # sha256 of entity signing API key
             "cert_fingerprint":     {"bsonType": "string"},  # sha256:...
             "key_status":           {"bsonType": "string",
                                      "enum": ["active", "rotated", "revoked"]},
@@ -73,6 +74,7 @@ SEAL_RECORDS_SCHEMA = {
             ]},
             "content_title":           {"bsonType": "string"},
             "qr_data":                 {"bsonType": "string"},
+            "signed_payload":          {"bsonType": "object"},
             "status":                  {"bsonType": "string", "enum": ["active", "revoked"]},
             "revoked_at":              {"bsonType": ["date", "null"]},
             "revocation_reason":       {"bsonType": ["string", "null"]},
@@ -190,11 +192,28 @@ db_connected = False
 async def connect_to_mongo():
     global client, db, db_connected
     try:
-        client = motor.motor_asyncio.AsyncIOMotorClient(settings.MONGO_URI, serverSelectionTimeoutMS=1000)
+        uri = settings.MONGO_URI
+        # TLS certificate validation is STRICT in production. We only allow
+        # insecure certs for obvious local-dev, non-TLS endpoints; never for
+        # mongodb+srv / Atlas URIs (a self-signed "server" there = MITM / cred theft).
+        is_local_dev = (
+            uri.startswith("mongodb://127.0.0.1")
+            or uri.startswith("mongodb://localhost")
+        )
+        is_tls_uri = "mongodb+srv" in uri
+        client = motor.motor_asyncio.AsyncIOMotorClient(
+            uri,
+            serverSelectionTimeoutMS=1500,
+            connectTimeoutMS=1500,
+            socketTimeoutMS=2000,
+            tlsAllowInvalidCertificates=True if is_local_dev else False,
+            tls=True if is_tls_uri else False,
+            appName="pramaan-shield",
+        )
         await client.admin.command('ping')
         db = client[settings.DB_NAME]
         db_connected = True
-        logger.info(f"Connected to MongoDB: {settings.MONGO_URI}/{settings.DB_NAME}")
+        logger.info(f"Connected to MongoDB: {settings.DB_NAME} (TLS={'lenient-dev' if is_local_dev else 'strict'})")
         await apply_schemas_and_indexes()
     except Exception as e:
         db_connected = False
@@ -210,8 +229,34 @@ async def close_mongo_connection():
         logger.info("MongoDB connection closed")
 
 
+_last_mongo_retry = 0.0
+
 async def get_db() -> Optional[motor.motor_asyncio.AsyncIOMotorDatabase]:
-    global db, db_connected
+    global db, db_connected, _last_mongo_retry
+    if db is not None and db_connected:
+        return db
+
+    # Cooldown check: only retry reconnect every 60 seconds to avoid blocking requests
+    import time
+    now = time.time()
+    if now - _last_mongo_retry < 60.0:
+        return None
+
+    _last_mongo_retry = now
+
+    # Lazy best-effort reconnect: if the connection dropped since startup, try
+    # once to re-establish it so the app can recover without a full restart.
+    try:
+        if client is None:
+            await connect_to_mongo()
+        elif not db_connected:
+            await client.admin.command('ping')
+            db = client[settings.DB_NAME]
+            db_connected = True
+            logger.info("MongoDB lazily reconnected after startup failure")
+    except Exception as e:
+        logger.warning(f"MongoDB unreachable ({e}); staying in degraded mode")
+
     if not db_connected or db is None:
         return None
     return db
@@ -276,7 +321,10 @@ async def apply_schemas_and_indexes():
             await db.create_collection(name, validator=schema, validationAction="error")
             logger.info(f"Created collection with schema: {name}")
         else:
-            await db.command("collMod", name, validator=schema, validationAction="error")
-            logger.info(f"Applied schema to existing collection: {name}")
+            try:
+                await db.command("collMod", name, validator=schema, validationAction="error")
+                logger.info(f"Applied schema to existing collection: {name}")
+            except Exception as e:
+                logger.debug(f"Skipped collMod for {name}: {e}")
 
     await create_indexes()

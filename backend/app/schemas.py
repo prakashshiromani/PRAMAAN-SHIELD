@@ -19,6 +19,7 @@ class ContentType(str, Enum):
     AUDIO = "audio"
     VIDEO = "video"
     IMAGE = "image"
+    EMAIL = "email"
 
 
 class VerdictStatus(str, Enum):
@@ -43,6 +44,15 @@ class SealVerdict(str, Enum):
     UNVERIFIED = "UNVERIFIED" # No Seal found / entity not in registry
 
 
+class SealContentType(str, Enum):
+    """Whitelist that matches SEAL_RECORDS_SCHEMA.content_type in mongodb.py."""
+    CIRCULAR = "circular"
+    PRESS_RELEASE = "press_release"
+    ADVISORY = "advisory"
+    VIDEO_STATEMENT = "video_statement"
+    NOTIFICATION = "notification"
+
+
 # ── Shared Models ──────────────────────────────────────────────────────────
 
 class CheckResult(BaseModel):
@@ -63,21 +73,6 @@ class ActionButton(BaseModel):
 
 
 # ── /api/scan Models ───────────────────────────────────────────────────────
-
-class ScanTextRequest(BaseModel):
-    content_type: ContentType = ContentType.TEXT
-    text_content: str = Field(..., max_length=10000)
-    language: str = Field("hi", pattern="^(hi|en)$")
-
-
-class ScanInput(BaseModel):
-    """Internal unified model after request parsing."""
-    content_type: ContentType
-    text_content: Optional[str] = None
-    media_path: Optional[str] = None
-    media_original_name: Optional[str] = None
-    language: str = "hi"
-
 
 class ScanResponse(BaseModel):
     scan_id: str
@@ -128,7 +123,7 @@ class VerifySealResponse(BaseModel):
 class IssueSealRequest(BaseModel):
     # entity_name & reg_no come from authenticated session (SECURITY.md §5.1)
     content_hash: str = Field(..., pattern=r"^sha256:[a-fA-F0-9]{64}$")
-    content_type: str = Field(..., examples=["circular", "press_release", "advisory", "video_statement"])
+    content_type: SealContentType = SealContentType.ADVISORY
     content_title: str = Field(..., max_length=200)
     validity_days: int = Field(90, ge=1, le=365)
 
@@ -181,40 +176,3 @@ class DashboardStatsResponse(BaseModel):
     reports_generated: int
     top_flagged_domains: List[Dict[str, Any]]
     threat_distribution: Dict[str, int]
-
-
-class TelegramScanInput(BaseModel):
-    chat_id: int
-    message_id: int
-    user_id: int
-    username: Optional[str] = None
-    text_content: Optional[str] = None
-    media_file_id: Optional[str] = None
-    media_type: Optional[ContentType] = None
-    language: str = "hi"
-
-
-class TelegramVerdictReply(BaseModel):
-    chat_id: int
-    reply_to_message_id: int
-    trust_score: int = Field(..., ge=0, le=100)
-    verdict: VerdictStatus
-    verdict_emoji: str       # "🔴" | "🟡" | "🟢"
-    summary_text: str
-    inline_keyboard: List[Dict[str, str]]
-
-
-# ── Error Response Models ──────────────────────────────────────────────────
-
-class ErrorDetail(BaseModel):
-    field: Optional[str] = None
-    message: str
-
-
-class ErrorResponse(BaseModel):
-    error: bool = True
-    status_code: int
-    error_type: str      # "validation_error" | "not_found" | "rate_limited" | "internal_error"
-    message: str
-    details: Optional[List[ErrorDetail]] = None
-    request_id: Optional[str] = None

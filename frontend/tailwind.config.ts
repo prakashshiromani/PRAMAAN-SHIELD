@@ -42,13 +42,23 @@ const config: Config = {
           DEFAULT: 'var(--foil)',
           lite: 'var(--foil-lite)',
         },
-        amber: 'var(--amber)',
+        amber: {
+          DEFAULT: 'var(--amber)',
+          300: 'var(--amber)',
+          400: 'var(--amber)',
+          500: 'var(--amber)',
+          600: 'var(--amber)',
+          700: 'var(--amber)',
+          800: 'var(--amber)',
+          900: 'var(--amber)',
+          950: 'var(--amber)',
+        },
         line: {
           DEFAULT: 'var(--line)',
           ink: 'var(--line-ink)',
         },
         // Verdict aliases — semantic names for trust bands so pages never
-        // hardcode a hex. Mirrors getVerdictBand() in lib/types.ts.
+        // hardcode a hex.
         verdict: {
           pass: 'var(--engrave)',
           warn: 'var(--amber)',

@@ -4,22 +4,19 @@ File: backend/app/utils/levenshtein.py
 """
 
 import json
-from pathlib import Path
 from typing import List, Dict, Any
 from Levenshtein import distance as levenshtein_distance
-from loguru import logger
+from app.utils.json_io import load_json_data
+
+_LEGIT_FALLBACK = [
+    "sebi.gov.in", "bseindia.com", "nseindia.com", "zerodha.com", "groww.in", "angelone.in"
+]
 
 
 def load_legitimate_domains() -> List[str]:
     """Load legitimate financial domain list from app/data/legitimate_domains.json"""
-    file_path = Path("app/data/legitimate_domains.json")
-    if not file_path.exists():
-        logger.warning("legitimate_domains.json not found, using fallback defaults")
-        return ["sebi.gov.in", "bseindia.com", "nseindia.com", "zerodha.com", "groww.in", "angelone.in"]
-
-    with open(file_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        return data.get("domains", [])
+    data = load_json_data("legitimate_domains.json", default={"domains": _LEGIT_FALLBACK})
+    return data.get("domains", _LEGIT_FALLBACK)
 
 
 LEGITIMATE_DOMAINS = load_legitimate_domains()

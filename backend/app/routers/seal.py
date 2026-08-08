@@ -7,7 +7,7 @@ import base64
 from fastapi import APIRouter, Depends, Request, Response, HTTPException, status
 from app.schemas import IssueSealRequest, IssueSealResponse
 from app.crypto.seal_engine import sign_communication
-from app.dependencies import get_api_key
+from app.dependencies import get_authenticated_entity
 from app.db.mongodb import get_db
 
 router = APIRouter()
@@ -17,15 +17,14 @@ router = APIRouter()
 async def sign_seal_endpoint(
     request_data: IssueSealRequest,
     request: Request,
-    api_key: str = Depends(get_api_key)
+    entity: dict = Depends(get_authenticated_entity)
 ):
     """
     Issue a new PRAMAAN Seal for an official communication.
     SECURITY: Entity identity comes from authenticated session / API key context.
     """
-    # Demo/Hackathon default authenticated entity
-    entity_name = "SEBI"
-    reg_no = "REGULATOR"
+    entity_name = entity["entity_name"]
+    reg_no = entity["registration_number"]
 
     raw_ip = request.client.host if request.client else "127.0.0.1"
     content_bytes = request_data.content_hash.encode("utf-8")
@@ -56,10 +55,19 @@ async def sign_seal_endpoint(
 @router.get("/seal/{seal_id}/qr", tags=["seal"])
 async def get_seal_qr_image(seal_id: str):
     """Serve the PNG QR code image for a Seal ID."""
+    from app.crypto.seal_engine import _LOCAL_ISSUED_SEALS
     db = await get_db()
-    rec = await db.seal_records.find_one({"seal_id": seal_id})
+    rec = None
+    if db is not None:
+        try:
+            rec = await db.seal_records.find_one({"seal_id": seal_id})
+        except Exception:
+            pass
 
-    if not rec or not rec.get("qr_data"):
+    if rec is None:
+        rec = _LOCAL_ISSUED_SEALS.get(seal_id)
+
+    if not rec:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Seal QR image not found")
 
     try:
@@ -67,7 +75,15 @@ async def get_seal_qr_image(seal_id: str):
         import qrcode
         from io import BytesIO
 
-        qr_json = base64.b64decode(rec["qr_data"]).decode()
+        qr_data_raw = rec.get("qr_data") or rec.get("qr_data_base64")
+        if qr_data_raw:
+            try:
+                qr_json = base64.b64decode(qr_data_raw).decode()
+            except Exception:
+                qr_json = str(qr_data_raw)
+        else:
+            qr_json = json.dumps({"seal_id": seal_id, "entity": rec.get("entity_name")})
+
         qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H)
         qr.add_data(qr_json)
         qr.make(fit=True)

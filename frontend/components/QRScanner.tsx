@@ -11,48 +11,78 @@ interface QRScannerProps {
 
 export const QRScanner: React.FC<QRScannerProps> = ({ onScan, onError, language }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [isScanning, setIsScanning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Keep the latest callbacks in refs so the effect below can mount the camera
+  // exactly ONCE. Previously the inline onScan/onError props in the deps array
+  // restarted the camera on every parent re-render (flash/blackout loop) and
+  // duplicate-scanned the same held QR because there was no decode-once guard.
+  const onScanRef = useRef(onScan);
+  const onErrorRef = useRef(onError);
+  onScanRef.current = onScan;
+  onErrorRef.current = onError;
+
+  const scannedRef = useRef(false);
 
   useEffect(() => {
     const codeReader = new BrowserMultiFormatReader();
     let controls: any = null;
+    let disposed = false;
+
+    const handleResult = (result: any, err: any) => {
+      if (result) {
+        if (!scannedRef.current) {
+          scannedRef.current = true;
+          try {
+            controls?.stop(); // stop decode loop after first successful read
+          } catch {
+            /* already stopped */
+          }
+          onScanRef.current(result.getText());
+        }
+        return;
+      }
+      if (err && !(err.name === "NotFoundException")) {
+        onErrorRef.current?.(err.message);
+      }
+    };
 
     const startCamera = async () => {
       try {
-        setIsScanning(true);
-        if (videoRef.current) {
+        if (videoRef.current && !disposed) {
           controls = await codeReader.decodeFromVideoDevice(
             undefined,
             videoRef.current,
-            (result, err) => {
-              if (result) {
-                onScan(result.getText());
-              }
-              if (err && !(err.name === "NotFoundException")) {
-                if (onError) onError(err.message);
-              }
-            }
+            handleResult
           );
         }
       } catch (err: any) {
+        if (disposed) return;
         setErrorMessage(
           language === "hi"
             ? "कैमरा एक्सेस करने में त्रुटि: " + (err.message || "अनुमति नहीं मिली")
             : "Camera access error: " + (err.message || "Permission denied")
         );
-        setIsScanning(false);
       }
     };
 
     startCamera();
 
     return () => {
-      if (controls) {
-        controls.stop();
+      disposed = true;
+      try {
+        controls?.stop();
+      } catch {
+        /* ignore */
+      }
+      const videoEl = videoRef.current;
+      if (videoEl && videoEl.srcObject) {
+        const stream = videoEl.srcObject as MediaStream;
+        stream.getTracks().forEach((t) => t.stop());
+        videoEl.srcObject = null;
       }
     };
-  }, [onScan, onError, language]);
+  }, []); // camera lifecycle decoupled from parent re-renders
 
   return (
     <div className="relative w-full max-w-sm mx-auto overflow-hidden cert-frame p-2 bg-[var(--paper-2)] border-[var(--ink)] shadow-2xl">
