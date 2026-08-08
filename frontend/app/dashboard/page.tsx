@@ -10,6 +10,7 @@ export default function DashboardPage() {
   const { language, setLanguage } = useLanguage();
   const [stats, setStats] = useState<DashboardStatsResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
   const fetchStats = async () => {
@@ -17,9 +18,11 @@ export default function DashboardPage() {
     try {
       const res = await getDashboardStats();
       setStats(res);
+      setError(false);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err) {
       console.error("Dashboard fetch error:", err);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -27,20 +30,20 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 10_000); // Poll every 10s for real-time live sync
+    const interval = setInterval(fetchStats, 10_000);
     return () => clearInterval(interval);
   }, []);
 
-  const threatDist = stats?.threat_distribution || { text: 480, audio: 120, video: 210, image: 190 };
+  const SkeletonBar = ({ className = "" }: { className?: string }) => (
+    <span className={`skeleton inline-block ${className}`} />
+  );
+
+  const threatDist = stats?.threat_distribution
+    ? stats.threat_distribution
+    : { text: 0, audio: 0, video: 0, image: 0 };
   const maxThreatCount = Math.max(1, ...Object.values(threatDist));
 
-  const flaggedDomains = stats?.top_flagged_domains && stats.top_flagged_domains.length > 0
-    ? stats.top_flagged_domains
-    : [
-        { domain: "zerrodha.com", count: 42 },
-        { domain: "serbi-gov.in", count: 28 },
-        { domain: "bse-tips.in", count: 19 }
-      ];
+  const flaggedDomains = stats?.top_flagged_domains ?? [];
 
   return (
     <div className="min-h-screen bg-[var(--paper)] text-[var(--ink)] font-body-spectral flex flex-col">
@@ -49,8 +52,18 @@ export default function DashboardPage() {
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6 space-y-8">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-[var(--line)] pb-6 gap-4">
           <div>
-            <div className="inline-block px-3 py-1 font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--engrave)] border border-[var(--engrave)] mb-2">
-              REAL-TIME THREAT METRICS &amp; VERIFICATION LOGS
+            <div className="inline-flex items-center gap-2 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--engrave)] border border-[var(--engrave)] mb-2">
+              {error ? (
+                <span className="text-[var(--stamp)]">⚠ Live feed degraded — showing session metrics</span>
+              ) : (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--stamp)] opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--stamp)]"></span>
+                  </span>
+                  REAL-TIME THREAT METRICS &amp; VERIFICATION LOGS
+                </>
+              )}
             </div>
             <h1 className="font-serif-header text-3xl md:text-4xl text-[var(--ink)] font-normal">
               {language === "hi" ? "एनालिटिक्स कमांड सेंटर" : "Analytics Command Center"}
@@ -73,7 +86,7 @@ export default function DashboardPage() {
               disabled={loading}
               className="cbtn text-xs py-1.5 px-3 flex items-center gap-1.5 font-mono"
             >
-              <span className={loading ? "animate-spin inline-block" : ""}>🔄</span>
+              <span className={loading ? "animate-spin inline-block" : "inline-block"}>🔄</span>
               <span>{language === "hi" ? "ताज़ा करें" : "Refresh"}</span>
             </button>
           </div>
@@ -84,23 +97,35 @@ export default function DashboardPage() {
           <div className="cert-frame p-4 bg-[var(--paper-2)] space-y-1">
             <span className="text-[11px] font-mono text-[var(--ink-soft)] uppercase tracking-wider block">TOTAL SCANS</span>
             <p className="font-serif-header text-3xl text-[var(--ink)]">
-              {stats ? stats.total_scans.toLocaleString() : (loading ? "..." : "15,420")}
+              {stats ? (
+                stats.total_scans.toLocaleString()
+              ) : (
+                <SkeletonBar className="h-8 w-20 bg-[var(--line)]" />
+              )}
             </p>
-            <span className="text-[10px] text-[var(--engrave)] font-mono">↑ 12.4% this week</span>
+            <span className="text-[10px] text-[var(--engrave)] font-mono">↑ live +{loading ? "" : " in-session"}</span>
           </div>
 
           <div className="cert-frame p-4 bg-[var(--paper-2)] border-[var(--stamp)] space-y-1">
             <span className="text-[11px] font-mono text-[var(--stamp)] uppercase tracking-wider block">FAKES CAUGHT</span>
             <p className="font-serif-header text-3xl text-[var(--stamp)]">
-              {stats ? stats.total_fakes_detected.toLocaleString() : (loading ? "..." : "4,218")}
+              {stats ? (
+                stats.total_fakes_detected.toLocaleString()
+              ) : (
+                <SkeletonBar className="h-8 w-56 bg-[var(--line)]" />
+              )}
             </p>
-            <span className="text-[10px] text-[var(--stamp)] font-mono">27.3% threat rate</span>
+            <span className="text-[10px] text-[var(--stamp)] font-mono">threat rate ↑ live</span>
           </div>
 
           <div className="cert-frame p-4 bg-[var(--paper-2)] border-[var(--foil)] space-y-1">
             <span className="text-[11px] font-mono text-[var(--foil)] uppercase tracking-wider block">SEALS VERIFIED</span>
             <p className="font-serif-header text-3xl text-[var(--engrave)]">
-              {stats ? stats.total_seals_verified.toLocaleString() : (loading ? "..." : "892")}
+              {stats ? (
+                stats.total_seals_verified.toLocaleString()
+              ) : (
+                <SkeletonBar className="h-8 w-56 bg-[var(--line)]" />
+              )}
             </p>
             <span className="text-[10px] text-[var(--engrave)] font-mono">100% cryptographic accuracy</span>
           </div>
@@ -108,7 +133,11 @@ export default function DashboardPage() {
           <div className="cert-frame p-4 bg-[var(--paper-2)] space-y-1">
             <span className="text-[11px] font-mono text-[var(--ink-soft)] uppercase tracking-wider block">REPORTS FILED</span>
             <p className="font-serif-header text-3xl text-[var(--prussian)]">
-              {stats ? stats.reports_generated.toLocaleString() : (loading ? "..." : "1,256")}
+              {stats ? (
+                stats.reports_generated.toLocaleString()
+              ) : (
+                <SkeletonBar className="h-8 w-56 bg-[var(--line)]" />
+              )}
             </p>
             <span className="text-[10px] text-[var(--prussian)] font-mono">SCORES &amp; 1930 Helpline</span>
           </div>
@@ -120,36 +149,63 @@ export default function DashboardPage() {
             <h3 className="text-xs font-mono uppercase text-[var(--engrave)] font-bold tracking-wider">
               {language === "hi" ? "मीडिया प्रकार द्वारा खतरे का वितरण" : "THREAT DISTRIBUTION BY MEDIA TYPE"}
             </h3>
-            <div className="space-y-3 text-xs font-mono">
-              {Object.entries(threatDist).map(([key, val]) => (
-                <div key={key} className="space-y-1">
-                  <div className="flex justify-between text-[var(--ink)]">
-                    <span className="uppercase">{key}</span>
-                    <span>{val.toLocaleString()} scans</span>
+            {stats ? (
+              <div className="space-y-3 text-xs font-mono">
+                {Object.entries(threatDist).map(([key, val]) => (
+                  <div key={key} className="space-y-1">
+                    <div className="flex justify-between text-[var(--ink)]">
+                      <span className="uppercase">{key}</span>
+                      <span>{val.toLocaleString()} scans</span>
+                    </div>
+                    <div className="h-2 w-full bg-[var(--paper)] border border-[var(--line-ink)] rounded overflow-hidden">
+                      <div
+                        className="h-full bg-[var(--engrave)] rounded transition-all duration-500"
+                        style={{ width: `${Math.min(100, Math.max(5, (val / maxThreatCount) * 100))}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 w-full bg-[var(--paper)] border border-[var(--line-ink)] rounded overflow-hidden">
-                    <div
-                      className="h-full bg-[var(--engrave)] rounded transition-all duration-500"
-                      style={{ width: `${Math.min(100, Math.max(5, (val / maxThreatCount) * 100))}%` }}
-                    />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {["text", "audio", "video", "image"].map((k) => (
+                  <div key={k} className="space-y-1">
+                    <div className="h-3 w-16 bg-[var(--line)] skeleton rounded" />
+                    <div className="h-2 w-full bg-[var(--paper)] border border-[var(--line-ink)] rounded overflow-hidden">
+                      <SkeletonBar className="h-full w-full" />
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="cert-frame p-5 bg-[var(--paper-2)] space-y-4">
             <h3 className="text-xs font-mono uppercase text-[var(--stamp)] font-bold tracking-wider">
               {language === "hi" ? "शीर्ष संदिग्ध/फ़िशिंग डोमेन" : "TOP FLAGGED TYPOSQUAT DOMAINS"}
             </h3>
-            <div className="space-y-2 text-xs font-mono">
-              {flaggedDomains.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between p-2.5 bg-[var(--paper)] border border-[var(--line-ink)] rounded hover:border-[var(--stamp)] transition-colors">
-                  <span className="text-[var(--stamp)] font-bold">{item.domain}</span>
-                  <span className="text-[var(--ink-soft)]">{item.count} detections</span>
+            {stats ? (
+              flaggedDomains.length > 0 ? (
+                <div className="space-y-2 text-xs font-mono">
+                  {flaggedDomains.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 bg-[var(--paper)] border border-[var(--line-ink)] rounded hover:border-[var(--stamp)] transition-colors">
+                      <span className="text-[var(--stamp)] font-bold">{item.domain}</span>
+                      <span className="text-[var(--ink-soft)]">{item.count} detections</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              ) : (
+                <div className="text-xs font-mono text-[var(--ink-soft)] p-2">
+                  No flagged domains yet this session. Run a scan with a phishing link to populate.
+                </div>
+              )
+            ) : (
+              <div className="space-y-2">
+                {[0, 1, 2].map((i) => (
+                  <SkeletonBar key={i} className="h-9 w-full bg-[var(--line)]" />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </main>

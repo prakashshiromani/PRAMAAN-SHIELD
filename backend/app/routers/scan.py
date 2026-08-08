@@ -375,7 +375,7 @@ async def _scan_content_impl(
         _LOCAL_SCAN_HISTORY.pop(oldest, None)
 
     try:
-        from app.services.analytics_service import get_analytics_service
+        from app.services.analytics_service import get_analytics_service, invalidate_dashboard_cache
         analytics_svc = get_analytics_service()
         flagged_d = None
         if phishing_res and phishing_res.domain_check and getattr(phishing_res.domain_check, "extracted_domain", None):
@@ -386,6 +386,7 @@ async def _scan_content_impl(
             checks=scan_doc["checks"],
             flagged_domain=flagged_d
         )
+        await invalidate_dashboard_cache()
     except Exception as e:
         logger.debug(f"Analytics scan recording skipped: {e}")
 

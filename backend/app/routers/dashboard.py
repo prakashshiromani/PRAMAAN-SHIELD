@@ -39,7 +39,7 @@ async def get_dashboard_stats():
     try:
         redis = await get_redis()
         if redis is not None:
-            await redis.set("stats:dashboard", response_obj.json(), ex=10)
+            await redis.set("stats:dashboard", response_obj.json(), ex=5)
     except Exception as e:
         logger.debug(f"Dashboard cache write skipped: {e}")
 

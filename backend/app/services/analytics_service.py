@@ -12,6 +12,7 @@ Responsibilities:
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone
 from collections import Counter
+import asyncio
 from loguru import logger
 from app.schemas import DashboardStatsResponse
 from app.db.mongodb import get_db
@@ -119,52 +120,75 @@ class AnalyticsService:
         """Record a generated complaint package for SCORES / 1930."""
         self._live_reports_generated += 1
 
+    async def _query_mongo_counts(self, db) -> Dict[str, Any]:
+        """
+        Run all persistent MongoDB aggregations for the dashboard.
+        Kept as a separate method so callers can bound it with asyncio.wait_for:
+        a degraded-but-connected cluster must never stall the live dashboard.
+        """
+        counts: Dict[str, Any] = {
+            "db_scans": 0, "db_fakes": 0, "db_seals": 0, "db_reports": 0,
+            "db_text": 0, "db_audio": 0, "db_video": 0, "db_image": 0,
+            "db_top_domains": []
+        }
+
+        counts["db_scans"] = await db.scan_history.count_documents({})
+        counts["db_fakes"] = await db.scan_history.count_documents({"verdict": "SUSPICIOUS"})
+        counts["db_seals"] = await db.seal_records.count_documents({"status": "active"})
+        counts["db_reports"] = await db.user_reports.count_documents({})
+
+        counts["db_text"] = await db.scan_history.count_documents({"content_type": "text"})
+        counts["db_audio"] = await db.scan_history.count_documents({"content_type": "audio"})
+        counts["db_video"] = await db.scan_history.count_documents({"content_type": "video"})
+        counts["db_image"] = await db.scan_history.count_documents({"content_type": "image"})
+
+        pipeline = [
+            {"$match": {"verdict": "SUSPICIOUS"}},
+            {"$unwind": "$checks"},
+            {"$match": {"checks.status": {"$in": ["fail", "warn"]}}},
+            {"$group": {"_id": "$checks.detail", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 5}
+        ]
+        cursor = db.scan_history.aggregate(pipeline)
+        async for doc in cursor:
+            detail = doc.get("_id") or ""
+            import re
+            domain_match = re.search(r'([a-zA-Z0-9-]+\.[a-zA-Z]{2,})', detail)
+            d_name = domain_match.group(1).lower() if domain_match else detail.split("→")[0].strip()
+            if d_name:
+                counts["db_top_domains"].append({"domain": d_name, "count": doc["count"]})
+        return counts
+
     async def get_dashboard_stats(self) -> DashboardStatsResponse:
         """
         Aggregate hybrid system statistics combining baseline metrics,
         live in-memory test events, and persistent MongoDB counts.
         """
-        db_scans = 0
-        db_fakes = 0
-        db_seals = 0
-        db_reports = 0
-        db_text = 0
-        db_audio = 0
-        db_video = 0
-        db_image = 0
-        db_top_domains: List[Dict[str, Any]] = []
+        counts: Dict[str, Any] = {
+            "db_scans": 0, "db_fakes": 0, "db_seals": 0, "db_reports": 0,
+            "db_text": 0, "db_audio": 0, "db_video": 0, "db_image": 0,
+            "db_top_domains": []
+        }
 
         db = await get_db()
         if db is not None:
             try:
-                db_scans = await db.scan_history.count_documents({})
-                db_fakes = await db.scan_history.count_documents({"verdict": "SUSPICIOUS"})
-                db_seals = await db.seal_records.count_documents({"status": "active"})
-                db_reports = await db.user_reports.count_documents({})
-
-                db_text = await db.scan_history.count_documents({"content_type": "text"})
-                db_audio = await db.scan_history.count_documents({"content_type": "audio"})
-                db_video = await db.scan_history.count_documents({"content_type": "video"})
-                db_image = await db.scan_history.count_documents({"content_type": "image"})
-
-                pipeline = [
-                    {"$match": {"verdict": "SUSPICIOUS"}},
-                    {"$unwind": "$checks"},
-                    {"$match": {"checks.status": {"$in": ["fail", "warn"]}}},
-                    {"$group": {"_id": "$checks.detail", "count": {"$sum": 1}}},
-                    {"$sort": {"count": -1}},
-                    {"$limit": 5}
-                ]
-                cursor = db.scan_history.aggregate(pipeline)
-                async for doc in cursor:
-                    detail = doc.get("_id") or ""
-                    import re
-                    domain_match = re.search(r'([a-zA-Z0-9-]+\.[a-zA-Z]{2,})', detail)
-                    d_name = domain_match.group(1).lower() if domain_match else detail.split("→")[0].strip()
-                    if d_name:
-                        db_top_domains.append({"domain": d_name, "count": doc["count"]})
+                counts = await asyncio.wait_for(self._query_mongo_counts(db), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("MongoDB dashboard query timed out; showing live/baseline stats only")
             except Exception as e:
                 logger.warning(f"MongoDB dashboard query skipped: {e}")
+
+        db_scans = counts["db_scans"]
+        db_fakes = counts["db_fakes"]
+        db_seals = counts["db_seals"]
+        db_reports = counts["db_reports"]
+        db_text = counts["db_text"]
+        db_audio = counts["db_audio"]
+        db_video = counts["db_video"]
+        db_image = counts["db_image"]
+        db_top_domains = counts["db_top_domains"]
 
         # Compute total metrics combining baseline + live in-memory + db
         total_scans = BASELINE_SCANS + self._live_scans + db_scans
@@ -207,3 +231,20 @@ _analytics_instance = AnalyticsService()
 
 def get_analytics_service() -> AnalyticsService:
     return _analytics_instance
+
+
+async def invalidate_dashboard_cache():
+    """
+    Invalidate the cached `stats:dashboard` Redis key immediately when a live
+    event (scan, seal verification, report) is recorded so the dashboard never
+    serves stale statistics from the pre-event state.
+    """
+    try:
+        from app.db.redis import get_redis
+
+        redis = await get_redis()
+        if redis is not None:
+            await redis.delete("stats:dashboard")
+            logger.debug("Dashboard stats cache invalidated")
+    except Exception as e:
+        logger.debug(f"Dashboard cache invalidation skipped: {e}")

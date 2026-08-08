@@ -81,11 +81,12 @@ async def generate_report_endpoint(request_data: GenerateReportRequest):
     )
 
     try:
-        from app.services.analytics_service import get_analytics_service
+        from app.services.analytics_service import get_analytics_service, invalidate_dashboard_cache
         analytics_svc = get_analytics_service()
         analytics_svc.record_report_generated()
-    except Exception:
-        pass
+        await invalidate_dashboard_cache()
+    except Exception as e:
+        logger.warning(f"Analytics report generation recording skipped: {e}")
 
     return res
 

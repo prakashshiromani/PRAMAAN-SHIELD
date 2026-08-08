@@ -239,6 +239,9 @@ async def close_mongo_connection():
 
 _last_mongo_retry = 0.0
 
+import asyncio
+
+
 async def get_db() -> Optional[motor.motor_asyncio.AsyncIOMotorDatabase]:
     global db, db_connected, _last_mongo_retry
     if db is not None and db_connected:
@@ -254,14 +257,18 @@ async def get_db() -> Optional[motor.motor_asyncio.AsyncIOMotorDatabase]:
 
     # Lazy best-effort reconnect: if the connection dropped since startup, try
     # once to re-establish it so the app can recover without a full restart.
+    # Bounded by a short timeout so an unreachable cluster can never stall a
+    # request for the full TLS/handshake failure window (~10s).
     try:
         if client is None:
-            await connect_to_mongo()
+            await asyncio.wait_for(connect_to_mongo(), timeout=2.5)
         elif not db_connected:
-            await client.admin.command('ping')
+            await asyncio.wait_for(client.admin.command('ping'), timeout=2.5)
             db = client[settings.DB_NAME]
             db_connected = True
             logger.info("MongoDB lazily reconnected after startup failure")
+    except asyncio.TimeoutError:
+        logger.warning("MongoDB reconnect attempt timed out; staying in degraded mode")
     except Exception as e:
         logger.warning(f"MongoDB unreachable ({e}); staying in degraded mode")
 

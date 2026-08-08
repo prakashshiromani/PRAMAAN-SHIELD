@@ -35,11 +35,13 @@ async def verify_seal_endpoint(request_data: VerifySealRequest):
     result = await verify_seal(seal_input, presented_bytes)
 
     try:
-        from app.services.analytics_service import get_analytics_service
+        from app.services.analytics_service import get_analytics_service, invalidate_dashboard_cache
         analytics_svc = get_analytics_service()
         analytics_svc.record_seal_verification(is_valid=result.get("is_valid", False))
-    except Exception:
-        pass
+        await invalidate_dashboard_cache()
+    except Exception as e:
+        from loguru import logger
+        logger.warning(f"Analytics seal verification recording skipped: {e}")
 
     def _to_str(val):
         if val is None:
