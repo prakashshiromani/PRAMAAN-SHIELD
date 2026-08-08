@@ -1,41 +1,21 @@
 """
-PRAMAAN-SHIELD — Centralized Analytics & Live Metrics Service
+PRAMAAN-SHIELD — Centralized Analytics & Real-Time Metrics Service
 File: backend/app/services/analytics_service.py
 
 Responsibilities:
-1. Unified aggregation across MongoDB (when online) and in-memory live stores (when offline/hybrid).
-2. Live recording of scans, deepfakes, phishing domains, seal verifications, and redressal reports.
-3. Baseline seed metrics + real-time dynamic delta tracking so analytics never collapse to zero.
-4. Automatic cache invalidation on new detection events.
+1. 100% real live tracking of security scans, deepfakes, phishing domains, seal verifications, and redressal reports.
+2. Real-time in-memory session tracking + persistent MongoDB aggregations (no hardcoded/fake numbers).
+3. Instant cache invalidation on new detection events.
 """
 
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone
 from collections import Counter
 import asyncio
+import re
 from loguru import logger
 from app.schemas import DashboardStatsResponse
 from app.db.mongodb import get_db
-
-
-# Baseline seed metrics representing authority-wide monitored traffic
-BASELINE_SCANS = 15420
-BASELINE_FAKES = 4218
-BASELINE_SEALS = 892
-BASELINE_REPORTS = 1256
-
-BASELINE_THREAT_DISTRIBUTION = {
-    "text": 480,
-    "audio": 120,
-    "video": 210,
-    "image": 190
-}
-
-BASELINE_FLAGGED_DOMAINS = [
-    {"domain": "zerrodha.com", "count": 42},
-    {"domain": "serbi-gov.in", "count": 28},
-    {"domain": "bse-tips.in", "count": 19}
-]
 
 
 class AnalyticsService:
@@ -61,12 +41,8 @@ class AnalyticsService:
             "image": 0
         }
 
-        # Dynamic domain counter
-        self._live_domain_counts: Counter = Counter({
-            "zerrodha.com": 42,
-            "serbi-gov.in": 28,
-            "bse-tips.in": 19
-        })
+        # Real-time dynamic domain detection counter (starts completely clean)
+        self._live_domain_counts: Counter = Counter()
 
     def record_scan(
         self,
@@ -75,7 +51,7 @@ class AnalyticsService:
         checks: Optional[List[Dict[str, Any]]] = None,
         flagged_domain: Optional[str] = None
     ):
-        """Record a live scan execution into real-time metrics."""
+        """Record a real scan execution into real-time metrics."""
         self._live_scans += 1
 
         ct = str(content_type).lower()
@@ -88,10 +64,13 @@ class AnalyticsService:
         if verdict_str in ["SUSPICIOUS", "FAIL"]:
             self._live_fakes += 1
 
-        # Extract flagged domains from checks or explicit parameter
+        # Extract flagged domains from explicit parameter
         if flagged_domain:
-            self._live_domain_counts[flagged_domain] += 1
+            clean_d = self._sanitize_domain(flagged_domain)
+            if clean_d:
+                self._live_domain_counts[clean_d] += 1
 
+        # Extract flagged domains from security checks
         if checks:
             for c in checks:
                 if isinstance(c, dict):
@@ -100,31 +79,39 @@ class AnalyticsService:
                     detail = str(c.get("detail", ""))
 
                     if status in ["fail", "warn"]:
-                        if "domain" in mod or "registry" in mod or "typosquat" in mod:
-                            # Extract potential domain from detail string
-                            import re
+                        if any(k in mod for k in ["domain", "registry", "typosquat", "phish", "sebi_registry"]):
                             domain_match = re.search(r'([a-zA-Z0-9-]+\.[a-zA-Z]{2,})', detail)
                             if domain_match:
-                                d = domain_match.group(1).lower()
-                                self._live_domain_counts[d] += 1
+                                d = self._sanitize_domain(domain_match.group(1))
+                                if d:
+                                    self._live_domain_counts[d] += 1
+
+    def _sanitize_domain(self, domain_str: str) -> Optional[str]:
+        """Normalize domain string into a clean hostname."""
+        if not domain_str:
+            return None
+        d = str(domain_str).lower().strip()
+        d = re.sub(r'^https?://', '', d)
+        d = d.split('/')[0].split(':')[0].strip()
+        if '.' in d and len(d) > 3:
+            return d
+        return None
 
     def record_seal_verification(self, is_valid: bool):
-        """Record a live PRAMAAN seal verification."""
+        """Record a real live PRAMAAN seal verification."""
         self._live_seals_verified += 1
 
     def record_seal_issued(self):
-        """Record a newly minted regulatory seal."""
+        """Record a real regulatory seal issuance."""
         self._live_seals_issued += 1
 
     def record_report_generated(self):
-        """Record a generated complaint package for SCORES / 1930."""
+        """Record a real complaint report generated for SCORES / 1930."""
         self._live_reports_generated += 1
 
     async def _query_mongo_counts(self, db) -> Dict[str, Any]:
         """
-        Run all persistent MongoDB aggregations for the dashboard.
-        Kept as a separate method so callers can bound it with asyncio.wait_for:
-        a degraded-but-connected cluster must never stall the live dashboard.
+        Run persistent MongoDB aggregations when database is online.
         """
         counts: Dict[str, Any] = {
             "db_scans": 0, "db_fakes": 0, "db_seals": 0, "db_reports": 0,
@@ -153,17 +140,16 @@ class AnalyticsService:
         cursor = db.scan_history.aggregate(pipeline)
         async for doc in cursor:
             detail = doc.get("_id") or ""
-            import re
             domain_match = re.search(r'([a-zA-Z0-9-]+\.[a-zA-Z]{2,})', detail)
-            d_name = domain_match.group(1).lower() if domain_match else detail.split("→")[0].strip()
+            d_name = self._sanitize_domain(domain_match.group(1)) if domain_match else self._sanitize_domain(detail.split("→")[0])
             if d_name:
                 counts["db_top_domains"].append({"domain": d_name, "count": doc["count"]})
         return counts
 
     async def get_dashboard_stats(self) -> DashboardStatsResponse:
         """
-        Aggregate hybrid system statistics combining baseline metrics,
-        live in-memory test events, and persistent MongoDB counts.
+        Aggregate 100% real live system statistics combining live session
+        actions and persistent MongoDB collections.
         """
         counts: Dict[str, Any] = {
             "db_scans": 0, "db_fakes": 0, "db_seals": 0, "db_reports": 0,
@@ -174,9 +160,9 @@ class AnalyticsService:
         db = await get_db()
         if db is not None:
             try:
-                counts = await asyncio.wait_for(self._query_mongo_counts(db), timeout=5.0)
+                counts = await asyncio.wait_for(self._query_mongo_counts(db), timeout=4.0)
             except asyncio.TimeoutError:
-                logger.warning("MongoDB dashboard query timed out; showing live/baseline stats only")
+                logger.warning("MongoDB dashboard query timed out; showing real live session stats")
             except Exception as e:
                 logger.warning(f"MongoDB dashboard query skipped: {e}")
 
@@ -190,20 +176,20 @@ class AnalyticsService:
         db_image = counts["db_image"]
         db_top_domains = counts["db_top_domains"]
 
-        # Compute total metrics combining baseline + live in-memory + db
-        total_scans = BASELINE_SCANS + self._live_scans + db_scans
-        total_fakes = BASELINE_FAKES + self._live_fakes + db_fakes
-        total_seals = BASELINE_SEALS + self._live_seals_verified + db_seals
-        total_reports = BASELINE_REPORTS + self._live_reports_generated + db_reports
+        # Compute total real metrics (live session + persistent db)
+        total_scans = self._live_scans + db_scans
+        total_fakes = self._live_fakes + db_fakes
+        total_seals = self._live_seals_verified + db_seals
+        total_reports = self._live_reports_generated + db_reports
 
         threat_dist = {
-            "text": BASELINE_THREAT_DISTRIBUTION["text"] + self._live_media_counts["text"] + db_text,
-            "audio": BASELINE_THREAT_DISTRIBUTION["audio"] + self._live_media_counts["audio"] + db_audio,
-            "video": BASELINE_THREAT_DISTRIBUTION["video"] + self._live_media_counts["video"] + db_video,
-            "image": BASELINE_THREAT_DISTRIBUTION["image"] + self._live_media_counts["image"] + db_image
+            "text": self._live_media_counts["text"] + db_text,
+            "audio": self._live_media_counts["audio"] + db_audio,
+            "video": self._live_media_counts["video"] + db_video,
+            "image": self._live_media_counts["image"] + db_image
         }
 
-        # Merge domain counts
+        # Merge live and database domain counts
         merged_domains = Counter(self._live_domain_counts)
         for item in db_top_domains:
             merged_domains[item["domain"]] += item["count"]
@@ -212,9 +198,6 @@ class AnalyticsService:
             {"domain": domain, "count": count}
             for domain, count in merged_domains.most_common(5)
         ]
-
-        if not top_domains_list:
-            top_domains_list = BASELINE_FLAGGED_DOMAINS
 
         return DashboardStatsResponse(
             total_scans=total_scans,
@@ -236,8 +219,7 @@ def get_analytics_service() -> AnalyticsService:
 async def invalidate_dashboard_cache():
     """
     Invalidate the cached `stats:dashboard` Redis key immediately when a live
-    event (scan, seal verification, report) is recorded so the dashboard never
-    serves stale statistics from the pre-event state.
+    event (scan, seal verification, report) is recorded.
     """
     try:
         from app.db.redis import get_redis

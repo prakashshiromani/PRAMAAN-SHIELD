@@ -103,7 +103,9 @@ export default function DashboardPage() {
                 <SkeletonBar className="h-8 w-20 bg-[var(--line)]" />
               )}
             </p>
-            <span className="text-[10px] text-[var(--engrave)] font-mono">↑ live +{loading ? "" : " in-session"}</span>
+            <span className="text-[10px] text-[var(--engrave)] font-mono">
+              {language === "hi" ? "लाइव सत्र ट्रैकिंग सक्रिय" : "Live session monitoring active"}
+            </span>
           </div>
 
           <div className="cert-frame p-4 bg-[var(--paper-2)] border-[var(--stamp)] space-y-1">
@@ -112,10 +114,14 @@ export default function DashboardPage() {
               {stats ? (
                 stats.total_fakes_detected.toLocaleString()
               ) : (
-                <SkeletonBar className="h-8 w-56 bg-[var(--line)]" />
+                <SkeletonBar className="h-8 w-16 bg-[var(--line)]" />
               )}
             </p>
-            <span className="text-[10px] text-[var(--stamp)] font-mono">threat rate ↑ live</span>
+            <span className="text-[10px] text-[var(--stamp)] font-mono">
+              {stats && stats.total_scans > 0
+                ? `${((stats.total_fakes_detected / stats.total_scans) * 100).toFixed(1)}% threat rate`
+                : (language === "hi" ? "0.0% खतरा दर" : "0.0% threat rate")}
+            </span>
           </div>
 
           <div className="cert-frame p-4 bg-[var(--paper-2)] border-[var(--foil)] space-y-1">
@@ -124,7 +130,7 @@ export default function DashboardPage() {
               {stats ? (
                 stats.total_seals_verified.toLocaleString()
               ) : (
-                <SkeletonBar className="h-8 w-56 bg-[var(--line)]" />
+                <SkeletonBar className="h-8 w-16 bg-[var(--line)]" />
               )}
             </p>
             <span className="text-[10px] text-[var(--engrave)] font-mono">100% cryptographic accuracy</span>
@@ -136,7 +142,7 @@ export default function DashboardPage() {
               {stats ? (
                 stats.reports_generated.toLocaleString()
               ) : (
-                <SkeletonBar className="h-8 w-56 bg-[var(--line)]" />
+                <SkeletonBar className="h-8 w-16 bg-[var(--line)]" />
               )}
             </p>
             <span className="text-[10px] text-[var(--prussian)] font-mono">SCORES &amp; 1930 Helpline</span>
