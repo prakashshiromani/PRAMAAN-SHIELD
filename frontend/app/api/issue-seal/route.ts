@@ -12,7 +12,10 @@ export const runtime = "nodejs";
  */
 export async function POST(request: NextRequest) {
   const apiKey = process.env.SEAL_API_KEY || "demo_seal_api_key";
-  const backend = API_BASE_URL;
+  const backend =
+    process.env.BACKEND_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    "https://pramaan-shield-backend.onrender.com";
 
   let body: unknown;
   try {

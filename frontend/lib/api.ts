@@ -7,7 +7,10 @@ import type {
   SealIssueResponse,
 } from './types';
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+export const API_BASE_URL =
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  'https://pramaan-shield-backend.onrender.com';
 
 /** SHA-256 hex digest via Web Crypto (shared by verify & seal-portal pages). */
 export async function sha256Hex(message: string): Promise<string> {
