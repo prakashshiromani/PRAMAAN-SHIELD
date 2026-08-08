@@ -17,9 +17,13 @@ from app.services.registry_service import RegistryService
 from app.services.phishing_service import PhishingService
 from app.services.trust_score_service import calculate_trust_score
 
+router = APIRouter()
+settings = get_settings()
+
 _gemini_svc = None
 _registry_svc = None
 _phishing_svc = None
+
 
 
 def get_phishing_svc():

@@ -48,8 +48,13 @@ from app.utils.file_cleanup import schedule_temp_file_deletion, ensure_upload_di
 from app.db.mongodb import get_db
 from app.config import get_settings
 
+settings = get_settings()
+router = APIRouter()
+
+
 _gemini_svc = None
 _registry_svc = None
+
 _phishing_svc = None
 _voice_analyzer = None
 _video_analyzer = None
