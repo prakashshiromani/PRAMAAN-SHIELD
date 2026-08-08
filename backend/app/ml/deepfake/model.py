@@ -59,54 +59,54 @@ class DeepfakeModel:
             try:
                 import torch
                 from transformers import AutoImageProcessor, AutoModelForImageClassification
-                
+
                 repo_id = "dima806/deepfake_vs_real_image_detection"
                 settings = get_settings()
-            hf_token = settings.HF_TOKEN or os.getenv("HF_TOKEN") or None
+                hf_token = settings.HF_TOKEN or os.getenv("HF_TOKEN") or None
 
-            kwargs = {}
-            if hf_token:
-                kwargs["token"] = hf_token
+                kwargs = {}
+                if hf_token:
+                    kwargs["token"] = hf_token
 
-            # Try loading from local HF cache first (0 network latency, no unauthenticated warning)
-            loaded_cached = False
-            try:
-                self.hf_processor = AutoImageProcessor.from_pretrained(repo_id, local_files_only=True, **kwargs)
-                self.hf_model = AutoModelForImageClassification.from_pretrained(
-                    repo_id, torch_dtype=torch.float16, local_files_only=True, **kwargs
-                )
-                loaded_cached = True
-                logger.info("Loaded ViT Deepfake Classifier from local cache [fp16]")
-            except Exception:
-                pass
-
-            if not loaded_cached:
-                logger.info("Attempting HuggingFace Hub load for ViT Deepfake Classifier...")
-                self.hf_processor = AutoImageProcessor.from_pretrained(repo_id, **kwargs)
-                self.hf_model = AutoModelForImageClassification.from_pretrained(
-                    repo_id, torch_dtype=torch.float16, **kwargs
-                )
-                logger.info("Loaded fine-tuned ViT Deepfake Classifier (dima806/deepfake_vs_real_image_detection) [fp16]")
-
-            self.hf_model.eval()
-            self.mode = "PRODUCTION"
-        except Exception as e:
-            logger.warning(f"Could not load HuggingFace ViT deepfake model: {e}. Trying local PyTorch weights...")
-            # Fallback to local EfficientNet weights if HF fails
-            if self.weights_path.exists() and self.weights_path.stat().st_size > 1024:
+                # Try loading from local HF cache first (0 network latency, no unauthenticated warning)
+                loaded_cached = False
                 try:
-                    import torch
-                    import timm
-                    self.model = timm.create_model("efficientnet_b4", pretrained=False, num_classes=1000)
-                    state = torch.load(self.weights_path, map_location="cpu")
-                    if isinstance(state, dict):
-                        state = state.get("state_dict", state.get("model", state))
-                    self.model.load_state_dict(state, strict=False)
-                    self.model.eval()
-                    self.mode = "PRODUCTION"
-                    logger.info(f"Loaded EfficientNet-B4 weights from {self.weights_path}")
-                except Exception as ex:
-                    logger.warning(f"PyTorch weight load failed: {ex}")
+                    self.hf_processor = AutoImageProcessor.from_pretrained(repo_id, local_files_only=True, **kwargs)
+                    self.hf_model = AutoModelForImageClassification.from_pretrained(
+                        repo_id, torch_dtype=torch.float16, local_files_only=True, **kwargs
+                    )
+                    loaded_cached = True
+                    logger.info("Loaded ViT Deepfake Classifier from local cache [fp16]")
+                except Exception:
+                    pass
+
+                if not loaded_cached:
+                    logger.info("Attempting HuggingFace Hub load for ViT Deepfake Classifier...")
+                    self.hf_processor = AutoImageProcessor.from_pretrained(repo_id, **kwargs)
+                    self.hf_model = AutoModelForImageClassification.from_pretrained(
+                        repo_id, torch_dtype=torch.float16, **kwargs
+                    )
+                    logger.info("Loaded fine-tuned ViT Deepfake Classifier (dima806/deepfake_vs_real_image_detection) [fp16]")
+
+                self.hf_model.eval()
+                self.mode = "PRODUCTION"
+            except Exception as e:
+                logger.warning(f"Could not load HuggingFace ViT deepfake model: {e}. Trying local PyTorch weights...")
+                # Fallback to local EfficientNet weights if HF fails
+                if self.weights_path.exists() and self.weights_path.stat().st_size > 1024:
+                    try:
+                        import torch
+                        import timm
+                        self.model = timm.create_model("efficientnet_b4", pretrained=False, num_classes=1000)
+                        state = torch.load(self.weights_path, map_location="cpu")
+                        if isinstance(state, dict):
+                            state = state.get("state_dict", state.get("model", state))
+                        self.model.load_state_dict(state, strict=False)
+                        self.model.eval()
+                        self.mode = "PRODUCTION"
+                        logger.info(f"Loaded EfficientNet-B4 weights from {self.weights_path}")
+                    except Exception as ex:
+                        logger.warning(f"PyTorch weight load failed: {ex}")
 
         if self.mode == "HACKATHON":
             logger.info("DeepfakeModel: Operating in multi-spectral frame-forensics mode")
