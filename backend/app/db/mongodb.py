@@ -202,27 +202,22 @@ async def connect_to_mongo():
         )
         is_tls_uri = "mongodb+srv" in uri
         kwargs = {
-            "serverSelectionTimeoutMS": 3000,
-            "connectTimeoutMS": 3000,
-            "socketTimeoutMS": 5000,
+            "serverSelectionTimeoutMS": 5000,
+            "connectTimeoutMS": 5000,
+            "socketTimeoutMS": 10000,
             "appName": "pramaan-shield",
         }
-        if is_tls_uri:
-            kwargs["tls"] = True
-            kwargs["tlsAllowInvalidCertificates"] = True
-            try:
-                import certifi
-                kwargs["tlsCAFile"] = certifi.where()
-            except ImportError:
-                pass
-        else:
-            kwargs["tlsAllowInvalidCertificates"] = True
+        try:
+            import certifi
+            kwargs["tlsCAFile"] = certifi.where()
+        except ImportError:
+            pass
 
         client = motor.motor_asyncio.AsyncIOMotorClient(uri, **kwargs)
         await client.admin.command('ping')
         db = client[settings.DB_NAME]
         db_connected = True
-        logger.info(f"Connected to MongoDB: {settings.DB_NAME}")
+        logger.info(f"Connected to MongoDB Atlas: {settings.DB_NAME}")
         await apply_schemas_and_indexes()
     except Exception as e:
         db_connected = False
