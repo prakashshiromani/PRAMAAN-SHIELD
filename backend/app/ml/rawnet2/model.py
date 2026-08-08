@@ -9,7 +9,7 @@ Operates in PRODUCTION mode when weights exist, or HACKATHON fallback mode.
 import wave
 from pathlib import Path
 from loguru import logger
-import torch
+
 
 
 class RawNet2Model:

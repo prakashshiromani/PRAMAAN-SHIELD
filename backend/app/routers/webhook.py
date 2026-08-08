@@ -17,12 +17,19 @@ from app.services.registry_service import RegistryService
 from app.services.phishing_service import PhishingService
 from app.services.trust_score_service import calculate_trust_score
 
-router = APIRouter()
-settings = get_settings()
+_gemini_svc = None
+_registry_svc = None
+_phishing_svc = None
 
-gemini_svc = GeminiService()
-registry_svc = RegistryService()
-phishing_svc = PhishingService(gemini_svc, registry_svc)
+
+def get_phishing_svc():
+    global _gemini_svc, _registry_svc, _phishing_svc
+    if _phishing_svc is None:
+        _gemini_svc = GeminiService()
+        _registry_svc = RegistryService()
+        _phishing_svc = PhishingService(_gemini_svc, _registry_svc)
+    return _phishing_svc
+
 
 
 def _webhook_secret_ok(presented) -> bool:
@@ -66,7 +73,8 @@ async def telegram_webhook(
             return {"ok": True, "status": "processed", "reply": reply_html}
 
         # 1. Run real phishing detection pipeline
-        phishing_res = await phishing_svc.analyze_text(text)
+        phishing_res = await get_phishing_svc().analyze_text(text)
+
         registry_res = phishing_res.registry_match if phishing_res else None
 
         # 2. Calculate trust score

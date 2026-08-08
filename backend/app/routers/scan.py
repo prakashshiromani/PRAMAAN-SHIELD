@@ -48,16 +48,49 @@ from app.utils.file_cleanup import schedule_temp_file_deletion, ensure_upload_di
 from app.db.mongodb import get_db
 from app.config import get_settings
 
-settings = get_settings()
-router = APIRouter()
+_gemini_svc = None
+_registry_svc = None
+_phishing_svc = None
+_voice_analyzer = None
+_video_analyzer = None
 
-gemini_svc = GeminiService()
-registry_svc = RegistryService()
-phishing_svc = PhishingService(gemini_svc, registry_svc)
-voice_analyzer = VoiceAnalyzer()
-video_analyzer = VideoAnalyzer()
+
+def get_gemini_svc():
+    global _gemini_svc
+    if _gemini_svc is None:
+        _gemini_svc = GeminiService()
+    return _gemini_svc
+
+
+def get_registry_svc():
+    global _registry_svc
+    if _registry_svc is None:
+        _registry_svc = RegistryService()
+    return _registry_svc
+
+
+def get_phishing_svc():
+    global _phishing_svc
+    if _phishing_svc is None:
+        _phishing_svc = PhishingService(get_gemini_svc(), get_registry_svc())
+    return _phishing_svc
+
+
+def get_voice_analyzer():
+    global _voice_analyzer
+    if _voice_analyzer is None:
+        _voice_analyzer = VoiceAnalyzer()
+    return _voice_analyzer
+
+
+def get_video_analyzer():
+    global _video_analyzer
+    if _video_analyzer is None:
+        _video_analyzer = VideoAnalyzer()
+    return _video_analyzer
 
 ALLOWED_EXTENSIONS = {".mp3", ".wav", ".m4a", ".mp4", ".mov", ".jpg", ".jpeg", ".png", ".txt", ".eml", ".json"}
+
 
 # Hard cap on concurrent scans: heavy CPU (pHash, OpenCV decode) and ML runs on
 # a CPU box; running 15 scans at once would oversubscribe threads/cores.
@@ -196,13 +229,13 @@ async def _scan_content_impl(
     video_res = None
 
     if text_content:
-        phishing_res = await phishing_svc.analyze_text(text_content)
+        phishing_res = await get_phishing_svc().analyze_text(text_content)
 
     logger.info(f"Scan request: content_type={content_type}, file={file.filename if file else None}, temp_path={saved_temp_path}")
 
     if (content_type == "audio") and (saved_temp_path or file):
         try:
-            voice_res = await voice_analyzer.analyze(saved_temp_path or "")
+            voice_res = await get_voice_analyzer().analyze(saved_temp_path or "")
             logger.info(f"Voice analysis result: is_synthetic={voice_res.is_synthetic}, score={voice_res.liveness_score}%")
         except Exception as e:
             logger.error(f"Voice analysis error: {e}")
@@ -210,12 +243,12 @@ async def _scan_content_impl(
     if (effective_ct == "video") and (saved_temp_path or file):
         try:
             orig_name = file.filename if file else None
-            video_res = await video_analyzer.analyze(saved_temp_path or "", original_filename=orig_name)
+            video_res = await get_video_analyzer().analyze(saved_temp_path or "", original_filename=orig_name)
             logger.info(f"Video visual analysis result: is_deepfake={video_res.is_deepfake}, prob={video_res.deepfake_probability}%")
 
             # Dual-Fusion: also analyze the audio track of the video file for AI voice cloning!
             try:
-                voice_res = await voice_analyzer.analyze(saved_temp_path or "")
+                voice_res = await get_voice_analyzer().analyze(saved_temp_path or "")
                 logger.info(f"Video audio track analysis result: is_synthetic={voice_res.is_synthetic}, score={voice_res.liveness_score}%")
                 if voice_res and voice_res.is_synthetic:
                     video_res.is_deepfake = True
@@ -228,8 +261,9 @@ async def _scan_content_impl(
 
     if (effective_ct == "image") and (saved_temp_path or file):
         try:
-            video_res = await asyncio.to_thread(video_analyzer.analyze_image, saved_temp_path or "")
+            video_res = await asyncio.to_thread(get_video_analyzer().analyze_image, saved_temp_path or "")
             logger.info(f"Image deepfake analysis result: is_deepfake={video_res.is_deepfake}, prob={video_res.deepfake_probability}%")
+
         except Exception as e:
             logger.error(f"Image deepfake analysis error: {e}")
 
