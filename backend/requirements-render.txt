@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # Core Framework
 fastapi>=0.104.1
 uvicorn[standard]>=0.24.0
@@ -10,8 +12,9 @@ motor>=3.3.2
 redis>=5.0.1
 
 # ML — PyTorch CPU-only (lighter for Render free tier)
-torch>=2.1.0 --index-url https://download.pytorch.org/whl/cpu
-torchaudio>=2.1.0 --index-url https://download.pytorch.org/whl/cpu
+torch>=2.1.0
+torchaudio>=2.1.0
+
 
 # ML — Video Detection
 opencv-contrib-python-headless>=4.8.1.78
