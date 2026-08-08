@@ -25,8 +25,13 @@ from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
+from pathlib import Path
+
 HINDI_FONT_NAME = "Helvetica"
+bundled_font = str(Path(__file__).parent.parent / "fonts" / "NotoSansDevanagari-Regular.ttf")
+
 possible_fonts = [
+    (bundled_font, None),
     ("C:\\Windows\\Fonts\\Nirmala.ttc", 0),
     ("C:\\Windows\\Fonts\\mangal.ttf", None),
     ("/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf", None)
