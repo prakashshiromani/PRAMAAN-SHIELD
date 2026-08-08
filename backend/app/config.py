@@ -9,6 +9,7 @@ by all services.
 
 from functools import lru_cache
 import secrets
+import re
 
 from loguru import logger
 from pydantic import SecretStr
@@ -23,7 +24,9 @@ class Settings(BaseSettings):
 
     # ── AI Services ────────────────────────────────────────────────────────
     GEMINI_API_KEY: str = "mock_gemini_key_for_dev"
+    GEMINI_API_KEYS: str = ""
     GEMINI_MODEL: str = "gemini-2.0-flash"
+    HF_TOKEN: str = ""
 
     # ── Telegram Bot ───────────────────────────────────────────────────────
     TELEGRAM_BOT_TOKEN: str = "mock_telegram_token"
@@ -119,6 +122,16 @@ class Settings(BaseSettings):
             "http://127.0.0.1:3000",
             "https://pramaan-shield.vercel.app",
         ]
+
+    def resolved_gemini_api_keys(self) -> list:
+        """Return list of Gemini API keys for round-robin rotation & 429 failover."""
+        keys = []
+        combined_raw = f"{self.GEMINI_API_KEYS}\n{self.GEMINI_API_KEY}"
+        for k in re.split(r'[,;\n\s]+', combined_raw):
+            k_clean = k.strip()
+            if k_clean and k_clean != "mock_gemini_key_for_dev" and k_clean not in keys:
+                keys.append(k_clean)
+        return keys
 
     def trusted_proxy_cidrs(self) -> list:
         """Parse TRUSTED_PROXY_CIDRS into (network, netmask) pairs."""

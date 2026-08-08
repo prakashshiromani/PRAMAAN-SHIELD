@@ -16,9 +16,12 @@ from app.ml.aasist.model import AASISTModel
 from app.ml.rawnet2.model import RawNet2Model
 
 
-def _run_voice_analysis_sync(aasist_path: str, rawnet2_path: str, audio_path: str) -> "VoiceResult":
-    """Module-level entry for the sandboxed subprocess (picklable under spawn)."""
-    analyzer = VoiceAnalyzer(aasist_path, rawnet2_path)
+def _run_voice_analysis_sync(analyzer, audio_path: str) -> "VoiceResult":
+    """Module-level entry for the sandboxed subprocess. Under fork the child
+    inherits the parent's loaded VoiceAnalyzer copy-on-write; a plain string
+    argument is accepted for the spawn/Windows path to rebuild inside the worker."""
+    if isinstance(analyzer, str):
+        analyzer = VoiceAnalyzer(aasist_path=None, rawnet2_path=None)
     return analyzer._analyze_sync(audio_path)
 
 
@@ -50,7 +53,7 @@ class VoiceAnalyzer:
         from app.utils.sandboxed_runner import run_sandboxed_or_thread
         return await run_sandboxed_or_thread(
             _run_voice_analysis_sync,
-            (self.aasist_path, self.rawnet2_path, audio_path),
+            (self, audio_path),
             timeout_secs=45,
             fallback=lambda: self._analyze_sync(audio_path),
             task_label="voice analysis",

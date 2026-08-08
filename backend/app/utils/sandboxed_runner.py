@@ -19,8 +19,23 @@ Usage:
 
 import asyncio
 import multiprocessing as mp
+import os
 from typing import Any, Callable, Tuple
 from loguru import logger
+
+# Start method picker. On POSIX, "fork" inherits the parent's already-loaded ML
+# models copy-on-write — a sandboxed worker then adds ~0 MB of model RAM and
+# never re-downloads/re-loads weights (a fresh "spawn" child loads its own full
+# ViT/AASIST stacks: 3x redundant model copies blew the Render 512MB box → OOM
+# → proxy 502). Windows has no fork, so it keeps the picklable spawn path.
+def _pick_context() -> str:
+    if hasattr(os, "fork"):
+        try:
+            mp.get_context("fork")
+            return "fork"
+        except Exception:
+            pass
+    return "spawn"
 
 
 def _run_func(func: Callable, args: Tuple, queue) -> None:
@@ -48,7 +63,7 @@ async def run_in_sandbox(
         TimeoutError: If the function exceeds `timeout_secs`.
         RuntimeError: If the subprocess crashes (segfault, OOM, etc.).
     """
-    ctx = mp.get_context("spawn")
+    ctx = mp.get_context(_pick_context())
     queue = ctx.SimpleQueue()
     proc = ctx.Process(target=_run_func, args=(func, args, queue), daemon=True)
 

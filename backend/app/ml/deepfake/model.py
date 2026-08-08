@@ -25,6 +25,18 @@ IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
+import os
+from app.config import get_settings
+
+_GLOBAL_DEEPFAKE_MODEL = None
+
+def get_deepfake_model() -> "DeepfakeModel":
+    global _GLOBAL_DEEPFAKE_MODEL
+    if _GLOBAL_DEEPFAKE_MODEL is None:
+        _GLOBAL_DEEPFAKE_MODEL = DeepfakeModel()
+    return _GLOBAL_DEEPFAKE_MODEL
+
+
 class DeepfakeModel:
     """ViT Deepfake CNN + Multi-spectral Forensics Model Wrapper."""
 
@@ -41,13 +53,39 @@ class DeepfakeModel:
 
         # 1. Try loading fine-tuned HuggingFace ViT Deepfake Classifier (trained on 140k images)
         try:
+            import torch
             from transformers import AutoImageProcessor, AutoModelForImageClassification
+            
             repo_id = "dima806/deepfake_vs_real_image_detection"
-            self.hf_processor = AutoImageProcessor.from_pretrained(repo_id)
-            self.hf_model = AutoModelForImageClassification.from_pretrained(repo_id)
+            settings = get_settings()
+            hf_token = settings.HF_TOKEN or os.getenv("HF_TOKEN") or None
+
+            kwargs = {}
+            if hf_token:
+                kwargs["token"] = hf_token
+
+            # Try loading from local HF cache first (0 network latency, no unauthenticated warning)
+            loaded_cached = False
+            try:
+                self.hf_processor = AutoImageProcessor.from_pretrained(repo_id, local_files_only=True, **kwargs)
+                self.hf_model = AutoModelForImageClassification.from_pretrained(
+                    repo_id, torch_dtype=torch.float16, local_files_only=True, **kwargs
+                )
+                loaded_cached = True
+                logger.info("Loaded ViT Deepfake Classifier from local cache [fp16]")
+            except Exception:
+                pass
+
+            if not loaded_cached:
+                logger.info("Attempting HuggingFace Hub load for ViT Deepfake Classifier...")
+                self.hf_processor = AutoImageProcessor.from_pretrained(repo_id, **kwargs)
+                self.hf_model = AutoModelForImageClassification.from_pretrained(
+                    repo_id, torch_dtype=torch.float16, **kwargs
+                )
+                logger.info("Loaded fine-tuned ViT Deepfake Classifier (dima806/deepfake_vs_real_image_detection) [fp16]")
+
             self.hf_model.eval()
             self.mode = "PRODUCTION"
-            logger.info("Loaded fine-tuned ViT Deepfake Classifier (dima806/deepfake_vs_real_image_detection)")
         except Exception as e:
             logger.warning(f"Could not load HuggingFace ViT deepfake model: {e}. Trying local PyTorch weights...")
             # Fallback to local EfficientNet weights if HF fails
@@ -92,7 +130,7 @@ class DeepfakeModel:
                 inputs = self.hf_processor(images=rgb, return_tensors="pt")
                 with torch.no_grad():
                     outputs = self.hf_model(**inputs)
-                    probs = torch.softmax(outputs.logits, dim=-1)[0]
+                    probs = torch.softmax(outputs.logits, dim=-1)[0].float()
                     # Index 1 is 'Fake', Index 0 is 'Real'
                     deepfake_score = float(probs[1])
             except Exception as e:

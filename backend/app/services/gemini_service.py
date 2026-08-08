@@ -13,6 +13,7 @@ import json
 import re
 import asyncio
 import time
+import threading
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from loguru import logger
@@ -112,44 +113,102 @@ class GeminiNERResult:
     degraded: bool = False
 
 
+@dataclass
+class GeminiKeySlot:
+    key: str
+    client: Any = None
+    model_legacy: Any = None
+    cooldown_until: float = 0.0
+    failures: int = 0
+
+
 class GeminiService:
     def __init__(self):
-        self.api_key = settings.GEMINI_API_KEY
         self.model_name = settings.GEMINI_MODEL
-        self.available = bool(self.api_key and self.api_key != "mock_gemini_key_for_dev")
         self.degraded = False
         self._consecutive_failures = 0
         self._circuit_open_until = 0.0
         self._probe_active = False
-        # `google.generativeai` (legacy SDK) is deprecated upstream. Prefer the
-        # current `google.genai` SDK; fall back to the legacy package only when
-        # the new one is not installed (old deployments).
-        self._client = None
-        self._model = None
+        self._key_slots: List[GeminiKeySlot] = []
+        self._current_slot_idx: int = 0
+        self._lock = threading.Lock()
 
-        if self.available:
+        raw_keys = settings.resolved_gemini_api_keys()
+        if not raw_keys:
+            raw_keys = [settings.GEMINI_API_KEY]
+
+        for k in raw_keys:
+            if not k or k == "mock_gemini_key_for_dev":
+                continue
+            slot = GeminiKeySlot(key=k)
             try:
                 from google import genai as genai_new
-                self._client = genai_new.Client(api_key=self.api_key)
-                logger.info(f"GeminiService using google.genai SDK (model '{self.model_name}')")
+                slot.client = genai_new.Client(api_key=k)
+                self._key_slots.append(slot)
             except Exception as e:
-                logger.error(f"google.genai SDK unavailable ({e}); trying legacy google.generativeai")
                 try:
                     import google.generativeai as genai_legacy
-                    genai_legacy.configure(api_key=self.api_key)
-                    self._model = genai_legacy.GenerativeModel(self.model_name)
+                    genai_legacy.configure(api_key=k)
+                    slot.model_legacy = genai_legacy.GenerativeModel(self.model_name)
+                    self._key_slots.append(slot)
                 except Exception as e2:
-                    logger.error(f"Failed to initialize Gemini model '{self.model_name}': {e2}")
-                    self.available = False
-                    self.degraded = True
+                    logger.error(f"Failed to initialize Gemini key ending in '...{k[-6:]}': {e2}")
+
+        self.available = len(self._key_slots) > 0
+        if self.available:
+            logger.info(f"GeminiService active with pool of {len(self._key_slots)} rotated API key(s) (model '{self.model_name}')")
+        else:
+            logger.warning("GeminiService unavailable — running in heuristic fallback mode")
+
+    def _get_next_available_slot(self) -> Optional[GeminiKeySlot]:
+        if not self._key_slots:
+            return None
+        with self._lock:
+            now = time.monotonic()
+            num_slots = len(self._key_slots)
+
+            # Try round-robin from current index
+            for i in range(num_slots):
+                idx = (self._current_slot_idx + i) % num_slots
+                slot = self._key_slots[idx]
+                if slot.cooldown_until <= now:
+                    self._current_slot_idx = (idx + 1) % num_slots
+                    return slot
+
+            # If all slots in cooldown, check if any slot has lowest cooldown time
+            best_slot = min(self._key_slots, key=lambda s: s.cooldown_until)
+            if best_slot.cooldown_until - now < 5.0:
+                return best_slot
+            return None
 
     def _generate_sync(self, prompt: str) -> str:
-        """Call the configured Gemini backend and return the raw response text."""
-        if self._client is not None:
-            resp = self._client.models.generate_content(model=self.model_name, contents=prompt)
-        else:
-            resp = self._model.generate_content(prompt)
-        return resp.text
+        """Call Gemini backend using key pool rotation with 429 auto-failover."""
+        tried_indices = set()
+        num_slots = len(self._key_slots)
+
+        for _ in range(max(1, num_slots)):
+            slot = self._get_next_available_slot()
+            if not slot or id(slot) in tried_indices:
+                break
+            tried_indices.add(id(slot))
+
+            try:
+                if slot.client is not None:
+                    resp = slot.client.models.generate_content(model=self.model_name, contents=prompt)
+                else:
+                    resp = slot.model_legacy.generate_content(prompt)
+                return resp.text
+            except Exception as e:
+                err_str = str(e).lower()
+                if "429" in err_str or "quota" in err_str or "resourceexhausted" in err_str:
+                    slot.cooldown_until = time.monotonic() + 60.0
+                    masked_key = f"...{slot.key[-6:]}" if len(slot.key) > 6 else "key"
+                    logger.warning(f"🔄 Gemini Key pool slot ({masked_key}) hit 429 Rate-Limit. Cooling down 60s & rotating to next key!")
+                    continue
+                else:
+                    raise e
+
+        raise RuntimeError("All Gemini API keys in pool are exhausted or in 429 cooldown.")
 
     @staticmethod
     def _current_time() -> float:

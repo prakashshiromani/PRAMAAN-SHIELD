@@ -70,8 +70,15 @@ export default function ScanPage() {
       }, 700);
     } catch (err: any) {
       console.error("Scan error details:", err);
+      const status = err.response?.status;
       const backendDetail = err.response?.data?.detail;
-      const detailStr = typeof backendDetail === "string" ? backendDetail : (err.message || "Network error");
+      let detailStr = typeof backendDetail === "string" ? backendDetail : (err.message || "Network error");
+      if (status === 502 || status === 504 || !status) {
+        detailStr =
+          language === "hi"
+            ? "बैकएंड सर्वर गर्म हो रहा है / व्यस्त है। कृपया 1-2 मिनट बाद दोबारा स्कैन करें। (502)"
+            : "Backend server is warming up or busy. Please retry the scan in 1-2 minutes. (502)";
+      }
       setErrorMessage(
         language === "hi"
           ? `स्कैन विश्लेषण त्रुटि: ${detailStr}`

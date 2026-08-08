@@ -22,18 +22,17 @@ import cv2
 import numpy as np
 from loguru import logger
 
-from app.ml.deepfake.model import DeepfakeModel
+from app.ml.deepfake.model import DeepfakeModel, get_deepfake_model
 from app.utils.frame_extract import (
     extract_frames, temporal_consistency, generate_manipulation_heatmap,
     calculate_blink_rate, rppg_pulse_score, FACE_CROP_SIZE
 )
 
 
-def _run_video_analysis_sync(model_path: str, video_path: str, original_filename: Optional[str]) -> "VideoResult":
-    """Module-level entry for the sandboxed subprocess (picklable under spawn).
-    Reconstructs the analyzer inside the worker so weights never cross the
-    process boundary as an argument."""
-    analyzer = VideoAnalyzer(model_path=model_path)
+def _run_video_analysis_sync(analyzer, video_path: str, original_filename: Optional[str]) -> "VideoResult":
+    """Module-level entry for the sandboxed subprocess."""
+    if isinstance(analyzer, str):
+        analyzer = VideoAnalyzer(model_path=analyzer)
     return analyzer._analyze_sync(video_path, original_filename)
 
 
@@ -120,7 +119,7 @@ class FaceDetector:
         """Locate the largest face as (x, y, w, h). Downsampled for sub-second CPU speed."""
         try:
             h, w = frame.shape[:2]
-            scale = 320.0 / float(max(h, w)) if max(h, w) > 320 else 1.0
+            scale = 240.0 / float(max(h, w)) if max(h, w) > 240 else 1.0
             if scale != 1.0:
                 small = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
             else:
@@ -129,7 +128,7 @@ class FaceDetector:
             if self._cascade is not None:
                 gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
                 faces = self._cascade.detectMultiScale(
-                    gray, scaleFactor=1.1, minNeighbors=4, minSize=(24, 24)
+                    gray, scaleFactor=1.1, minNeighbors=4, minSize=(20, 20)
                 )
                 if len(faces) > 0:
                     best = max(faces, key=lambda f: f[2] * f[3])
@@ -151,7 +150,7 @@ class FaceDetector:
 class VideoAnalyzer:
     def __init__(self, model_path: Optional[str] = None):
         self.model_path = model_path or "app/ml/deepfake/weights/efficientnet_b4.pth"
-        self.model = DeepfakeModel(self.model_path)
+        self.model = get_deepfake_model()
         self.face_detector = FaceDetector()
         logger.info(
             f"Initialized VideoAnalyzer (EfficientNet-B4 [{self.model.mode}] + {self.face_detector.backend})"
@@ -160,23 +159,21 @@ class VideoAnalyzer:
     async def analyze(self, video_path: str, original_filename: Optional[str] = None) -> VideoResult:
         """
         Analyze video strictly from decoded frame pixels per TRD §8.4 specification.
-        Heavy CPU/PyTorch work runs in a sandboxed subprocess with a hard wall-clock
-        deadline (a corrupt/adversarial file cannot hang a worker thread); falls back
-        to a worker thread if the subprocess layer is unavailable — the asyncio event
-        loop itself is never blocked.
+        Heavy CPU/PyTorch work runs in a sandboxed subprocess with a hard 35s wall-clock deadline.
         """
         from app.utils.sandboxed_runner import run_sandboxed_or_thread
         return await run_sandboxed_or_thread(
             _run_video_analysis_sync,
-            (self.model_path, video_path, original_filename),
-            timeout_secs=60,
+            (self, video_path, original_filename),
+            timeout_secs=35,
             fallback=lambda: self._analyze_sync(video_path, original_filename),
             task_label="video analysis",
         )
 
     def _analyze_sync(self, video_path: str, original_filename: Optional[str] = None) -> VideoResult:
         try:
-            frames = extract_frames(video_path, every_n=10, max_frames=30)
+            # 960px cap + max 12 frames for sub-20 second deepfake detection
+            frames = extract_frames(video_path, every_n=10, max_frames=12, max_dim=960)
             if not frames:
                 logger.warning(f"No decodable frames in '{original_filename or video_path}'; checking fallback metadata heuristics")
                 name_str = (original_filename or video_path).lower()

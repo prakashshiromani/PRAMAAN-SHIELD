@@ -131,7 +131,7 @@ async def test_llm_extra_entity_cannot_add_registry_boost():
     assert healthy_res.registry_match.found is False
     assert degraded_res.registry_match.found is False
     assert healthy_trust["trust_score"] == degraded_trust["trust_score"] == 50
-    assert healthy_trust["verdict"] == degraded_trust["verdict"] == "CAUTION"
+    assert healthy_trust["verdict"] == degraded_trust["verdict"] == VerdictStatus.CAUTION
 
 
 @pytest.mark.asyncio

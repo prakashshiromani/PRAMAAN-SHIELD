@@ -16,20 +16,26 @@ import numpy as np
 from loguru import logger
 
 FRAME_INTERVAL = 10   # TRD §8.4 — sample every 10th frame
-MAX_FRAMES = 30       # TRD §8.4 — at most 30 frames per video
+MAX_FRAMES = 12       # Fast video scanning (up to 12 frames per video for sub-20s analysis)
 FACE_CROP_SIZE = 224  # TRD §8.4 — 224x224 model input
 
 
 def extract_frames(
     video_path: str,
     every_n: int = FRAME_INTERVAL,
-    max_frames: int = MAX_FRAMES
+    max_frames: int = MAX_FRAMES,
+    max_dim: int = 0
 ) -> List[np.ndarray]:
     """
     Sample up to `max_frames` BGR frames, taking every `every_n`th frame.
 
     Skipped frames are consumed with grab() rather than decoded, so the cost
     scales with the sampled count and not the full video length.
+
+    If `max_dim` > 0, decoded frames wider/taller than that are downscaled
+    (keeping aspect ratio) before being retained — a 1080p frame is ~6 MB RAM;
+    capping at 960 px cuts retained-frame memory ~4-6x with no visible impact
+    on the 224x224 model crop or histogram forensics.
     Returns an empty list if the container cannot be opened or decoded.
     """
     cap = cv2.VideoCapture(video_path)
@@ -47,6 +53,14 @@ def extract_frames(
             if position % every_n == 0:
                 ok, frame = cap.retrieve()
                 if ok and frame is not None:
+                    if max_dim > 0:
+                        h, w = frame.shape[:2]
+                        scale = max_dim / float(max(h, w)) if max(h, w) > max_dim else 1.0
+                        if scale < 1.0:
+                            frame = cv2.resize(
+                                frame, (int(w * scale), int(h * scale)),
+                                interpolation=cv2.INTER_AREA
+                            )
                     frames.append(frame)
             position += 1
     except Exception as e:

@@ -242,7 +242,10 @@ async def _scan_content_impl(
 
     if (content_type == "audio") and (saved_temp_path or file):
         try:
-            voice_res = await get_voice_analyzer().analyze(saved_temp_path or "")
+            # Analyzer construction loads models (heavy); never run it on the
+            # event loop — it would freeze every concurrent request.
+            voice_analyzer = await asyncio.to_thread(get_voice_analyzer)
+            voice_res = await voice_analyzer.analyze(saved_temp_path or "")
             logger.info(f"Voice analysis result: is_synthetic={voice_res.is_synthetic}, score={voice_res.liveness_score}%")
         except Exception as e:
             logger.error(f"Voice analysis error: {e}")
@@ -250,25 +253,46 @@ async def _scan_content_impl(
     if (effective_ct == "video") and (saved_temp_path or file):
         try:
             orig_name = file.filename if file else None
-            video_res = await get_video_analyzer().analyze(saved_temp_path or "", original_filename=orig_name)
-            logger.info(f"Video visual analysis result: is_deepfake={video_res.is_deepfake}, prob={video_res.deepfake_probability}%")
+            video_analyzer = await asyncio.to_thread(get_video_analyzer)
+            voice_analyzer = await asyncio.to_thread(get_voice_analyzer)
 
-            # Dual-Fusion: also analyze the audio track of the video file for AI voice cloning!
-            try:
-                voice_res = await get_voice_analyzer().analyze(saved_temp_path or "")
-                logger.info(f"Video audio track analysis result: is_synthetic={voice_res.is_synthetic}, score={voice_res.liveness_score}%")
-                if voice_res and voice_res.is_synthetic:
-                    video_res.is_deepfake = True
-                    video_res.deepfake_probability = max(video_res.deepfake_probability, 88)
-                    video_res.analysis_failed = False
-            except Exception as ve:
-                logger.warning(f"Audio track extraction from video skipped: {ve}")
+            async def _run_visual():
+                return await video_analyzer.analyze(saved_temp_path or "", original_filename=orig_name)
+
+            async def _run_audio():
+                return await voice_analyzer.analyze(saved_temp_path or "")
+
+            # Parallel Dual-Fusion: run visual deepfake scan & voice clone check concurrently
+            results = await asyncio.gather(
+                asyncio.wait_for(_run_visual(), timeout=35.0),
+                asyncio.wait_for(_run_audio(), timeout=35.0),
+                return_exceptions=True
+            )
+
+            if isinstance(results[0], Exception):
+                logger.error(f"Video visual analysis error/timeout: {results[0]}")
+            else:
+                video_res = results[0]
+                if video_res:
+                    logger.info(f"Video visual analysis result: is_deepfake={video_res.is_deepfake}, prob={video_res.deepfake_probability}%")
+
+            if isinstance(results[1], Exception):
+                logger.warning(f"Video audio track analysis error/timeout: {results[1]}")
+            else:
+                voice_res = results[1]
+                if voice_res:
+                    logger.info(f"Video audio track analysis result: is_synthetic={voice_res.is_synthetic}, score={voice_res.liveness_score}%")
+                    if video_res and voice_res.is_synthetic:
+                        video_res.is_deepfake = True
+                        video_res.deepfake_probability = max(video_res.deepfake_probability, 88)
+                        video_res.analysis_failed = False
         except Exception as e:
             logger.error(f"Video analysis error: {e}")
 
     if (effective_ct == "image") and (saved_temp_path or file):
         try:
-            video_res = await asyncio.to_thread(get_video_analyzer().analyze_image, saved_temp_path or "")
+            video_analyzer = await asyncio.to_thread(get_video_analyzer)
+            video_res = await asyncio.to_thread(video_analyzer.analyze_image, saved_temp_path or "")
             logger.info(f"Image deepfake analysis result: is_deepfake={video_res.is_deepfake}, prob={video_res.deepfake_probability}%")
 
         except Exception as e:

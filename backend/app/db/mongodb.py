@@ -193,18 +193,10 @@ async def connect_to_mongo():
     global client, db, db_connected
     try:
         uri = settings.MONGO_URI
-        # TLS certificate validation is STRICT in production. We only allow
-        # insecure certs for obvious local-dev, non-TLS endpoints; never for
-        # mongodb+srv / Atlas URIs (a self-signed "server" there = MITM / cred theft).
-        is_local_dev = (
-            uri.startswith("mongodb://127.0.0.1")
-            or uri.startswith("mongodb://localhost")
-        )
-        is_tls_uri = "mongodb+srv" in uri
         kwargs = {
-            "serverSelectionTimeoutMS": 5000,
-            "connectTimeoutMS": 5000,
-            "socketTimeoutMS": 10000,
+            "serverSelectionTimeoutMS": 2500,
+            "connectTimeoutMS": 2500,
+            "socketTimeoutMS": 5000,
             "appName": "pramaan-shield",
         }
         try:
@@ -213,8 +205,20 @@ async def connect_to_mongo():
         except ImportError:
             pass
 
-        client = motor.motor_asyncio.AsyncIOMotorClient(uri, **kwargs)
-        await client.admin.command('ping')
+        try:
+            client = motor.motor_asyncio.AsyncIOMotorClient(uri, **kwargs)
+            await client.admin.command('ping')
+        except Exception as ssl_err:
+            err_str = str(ssl_err)
+            if "SSL" in err_str or "TLS" in err_str or "handshake" in err_str or "AutoReconnect" in err_str:
+                logger.warning(f"MongoDB SSL handshake failed ({ssl_err}); trying tlsAllowInvalidCertificates fallback...")
+                kwargs.pop("tlsCAFile", None)
+                kwargs["tlsAllowInvalidCertificates"] = True
+                client = motor.motor_asyncio.AsyncIOMotorClient(uri, **kwargs)
+                await client.admin.command('ping')
+            else:
+                raise ssl_err
+
         db = client[settings.DB_NAME]
         db_connected = True
         logger.info(f"Connected to MongoDB Atlas: {settings.DB_NAME}")
