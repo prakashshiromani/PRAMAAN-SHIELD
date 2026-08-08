@@ -34,6 +34,13 @@ async def verify_seal_endpoint(request_data: VerifySealRequest):
 
     result = await verify_seal(seal_input, presented_bytes)
 
+    try:
+        from app.services.analytics_service import get_analytics_service
+        analytics_svc = get_analytics_service()
+        analytics_svc.record_seal_verification(is_valid=result.get("is_valid", False))
+    except Exception:
+        pass
+
     def _to_str(val):
         if val is None:
             return None

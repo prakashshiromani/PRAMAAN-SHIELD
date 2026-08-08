@@ -74,11 +74,20 @@ async def generate_report_endpoint(request_data: GenerateReportRequest):
     """
     Generates pre-filled complaint templates for SEBI SCORES and 1930 Cybercrime Portal.
     """
-    return await redressal_svc.generate_complaint_report(
+    res = await redressal_svc.generate_complaint_report(
         scan_id=request_data.scan_id,
         target_portals=request_data.target_portals,
         language=request_data.language
     )
+
+    try:
+        from app.services.analytics_service import get_analytics_service
+        analytics_svc = get_analytics_service()
+        analytics_svc.record_report_generated()
+    except Exception:
+        pass
+
+    return res
 
 
 @router.get("/report/{report_id}/pdf", tags=["report"])

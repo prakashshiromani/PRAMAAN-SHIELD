@@ -375,6 +375,21 @@ async def _scan_content_impl(
         _LOCAL_SCAN_HISTORY.pop(oldest, None)
 
     try:
+        from app.services.analytics_service import get_analytics_service
+        analytics_svc = get_analytics_service()
+        flagged_d = None
+        if phishing_res and phishing_res.domain_check and getattr(phishing_res.domain_check, "extracted_domain", None):
+            flagged_d = phishing_res.domain_check.extracted_domain
+        analytics_svc.record_scan(
+            content_type=effective_ct,
+            verdict=trust_result["verdict"].value,
+            checks=scan_doc["checks"],
+            flagged_domain=flagged_d
+        )
+    except Exception as e:
+        logger.debug(f"Analytics scan recording skipped: {e}")
+
+    try:
         db = await get_db()
         if db is not None:
             await db.scan_history.insert_one(scan_doc)

@@ -39,6 +39,13 @@ async def sign_seal_endpoint(
         actor_ip=raw_ip
     )
 
+    try:
+        from app.services.analytics_service import get_analytics_service
+        analytics_svc = get_analytics_service()
+        analytics_svc.record_seal_issued()
+    except Exception:
+        pass
+
     return IssueSealResponse(
         seal_id=result["seal_id"],
         entity_name=result["entity_name"],

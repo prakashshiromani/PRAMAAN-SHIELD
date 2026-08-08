@@ -165,7 +165,7 @@ def test_generate_report_endpoint(mock_gen_report):
     assert data["report_id"] == "REP-12345"
 
 
-@patch("app.routers.dashboard.get_db")
+@patch("app.services.analytics_service.get_db")
 def test_dashboard_stats_endpoint(mock_db):
     mock_db_inst = AsyncMock()
     mock_db_inst.scan_history.count_documents = AsyncMock(return_value=150)
