@@ -59,6 +59,45 @@ def test_live_scan_increments_analytics(mock_redis, mock_db):
     assert resp_after["total_fakes_detected"] >= fakes_before + 1
 
 
+@patch("app.routers.scan.get_db")
+@patch("app.db.redis.get_redis")
+@patch("app.routers.scan.verify_seal")
+def test_live_scan_verified_seal_increments_both_total_and_seals(mock_verify_seal, mock_redis, mock_db):
+    mock_db_inst = AsyncMock()
+    mock_db_inst.scan_history.insert_one = AsyncMock(return_value=True)
+    mock_db_inst.sebi_registry.find_one = AsyncMock(return_value={"entity_name": "Zerodha Broking Limited", "registration_no": "INZ000031633"})
+    mock_db.return_value = mock_db_inst
+
+    mock_redis_inst = AsyncMock()
+    mock_redis_inst.get = AsyncMock(return_value=None)
+    mock_redis_inst.set = AsyncMock(return_value=True)
+    mock_redis.return_value = mock_redis_inst
+
+    mock_verify_seal.return_value = {
+        "verdict": "VERIFIED",
+        "is_valid": True,
+        "signer_entity_name": "Zerodha Broking Limited",
+        "signer_registration_number": "INZ000031633",
+        "content_match": True
+    }
+
+    resp_before = client.get("/api/dashboard/stats").json()
+    scans_before = resp_before["total_scans"]
+    seals_before = resp_before["total_seals_verified"]
+
+    payload = {
+        "content_type": "text",
+        "text_content": "Official Advisory from Zerodha Broking Limited (SEBI Reg: INZ000031633). [PRAMAAN SEAL CERTIFICATE: PRMN-2026-ZERO-FC0A5]",
+        "language": "en"
+    }
+    scan_resp = client.post("/api/scan", data=payload)
+    assert scan_resp.status_code == 200
+
+    resp_after = client.get("/api/dashboard/stats").json()
+    assert resp_after["total_scans"] == scans_before + 1
+    assert resp_after["total_seals_verified"] == seals_before + 1
+
+
 @patch("app.routers.verify.verify_seal")
 def test_live_seal_verification_increments_analytics(mock_verify_seal):
     mock_verify_seal.return_value = {

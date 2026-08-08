@@ -49,7 +49,8 @@ class AnalyticsService:
         content_type: str,
         verdict: str,
         checks: Optional[List[Dict[str, Any]]] = None,
-        flagged_domain: Optional[str] = None
+        flagged_domain: Optional[str] = None,
+        is_seal_verified: bool = False
     ):
         """Record a real scan execution into real-time metrics."""
         self._live_scans += 1
@@ -63,6 +64,17 @@ class AnalyticsService:
         verdict_str = str(verdict).upper()
         if verdict_str in ["SUSPICIOUS", "FAIL"]:
             self._live_fakes += 1
+        elif verdict_str in ["VERIFIED", "CERTIFIED"] or is_seal_verified:
+            self._live_seals_verified += 1
+        elif checks:
+            # Check if cryptographic seal or registered entity check passed
+            for c in checks:
+                if isinstance(c, dict):
+                    mod = str(c.get("module", "")).lower()
+                    status = str(c.get("status", "")).lower()
+                    if status in ["pass", "verified"] and any(k in mod for k in ["seal", "prmn", "signature"]):
+                        self._live_seals_verified += 1
+                        break
 
         # Extract flagged domains from explicit parameter
         if flagged_domain:
@@ -120,8 +132,10 @@ class AnalyticsService:
         }
 
         counts["db_scans"] = await db.scan_history.count_documents({})
-        counts["db_fakes"] = await db.scan_history.count_documents({"verdict": "SUSPICIOUS"})
-        counts["db_seals"] = await db.seal_records.count_documents({"status": "active"})
+        counts["db_fakes"] = await db.scan_history.count_documents({"verdict": {"$in": ["SUSPICIOUS", "FAIL"]}})
+        db_seal_active = await db.seal_records.count_documents({"status": "active"})
+        db_verified_scans = await db.scan_history.count_documents({"verdict": {"$in": ["VERIFIED", "CERTIFIED"]}})
+        counts["db_seals"] = db_seal_active + db_verified_scans
         counts["db_reports"] = await db.user_reports.count_documents({})
 
         counts["db_text"] = await db.scan_history.count_documents({"content_type": "text"})

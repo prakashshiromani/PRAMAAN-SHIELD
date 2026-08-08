@@ -380,11 +380,19 @@ async def _scan_content_impl(
         flagged_d = None
         if phishing_res and phishing_res.domain_check and getattr(phishing_res.domain_check, "extracted_domain", None):
             flagged_d = phishing_res.domain_check.extracted_domain
+
+        is_verified_seal = False
+        if seal_res and (seal_res.get("is_valid") or str(seal_res.get("verdict")).upper() == "VERIFIED"):
+            is_verified_seal = True
+        elif trust_result["verdict"].value in ["VERIFIED", "CERTIFIED"]:
+            is_verified_seal = True
+
         analytics_svc.record_scan(
             content_type=effective_ct,
             verdict=trust_result["verdict"].value,
             checks=scan_doc["checks"],
-            flagged_domain=flagged_d
+            flagged_domain=flagged_d,
+            is_seal_verified=is_verified_seal
         )
         await invalidate_dashboard_cache()
     except Exception as e:
