@@ -59,6 +59,8 @@ _phishing_svc = None
 _voice_analyzer = None
 _video_analyzer = None
 
+_LOCAL_SCAN_HISTORY: dict[str, dict] = {}
+
 
 def get_gemini_svc():
     global _gemini_svc
@@ -342,6 +344,11 @@ async def _scan_content_impl(
         "ip_hmac": ip_hmac,
         "created_at": now
     }
+
+    _LOCAL_SCAN_HISTORY[scan_id] = scan_doc
+    if len(_LOCAL_SCAN_HISTORY) > 500:
+        oldest = next(iter(_LOCAL_SCAN_HISTORY))
+        _LOCAL_SCAN_HISTORY.pop(oldest, None)
 
     try:
         db = await get_db()

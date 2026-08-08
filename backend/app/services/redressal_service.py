@@ -56,6 +56,13 @@ class RedressalService:
             except Exception as e:
                 logger.warning(f"MongoDB scan_history lookup skipped: {e}")
 
+        if scan_doc is None:
+            try:
+                from app.routers.scan import _LOCAL_SCAN_HISTORY
+                scan_doc = _LOCAL_SCAN_HISTORY.get(scan_id)
+            except Exception:
+                pass
+
         content_hash = (scan_doc.get("content_hash") if scan_doc else None) or EMPTY_SHA256
         evidence_available = scan_doc is not None
         # When no stored scan record exists we have NO verifiable evidence on
