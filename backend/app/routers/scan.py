@@ -59,7 +59,46 @@ _phishing_svc = None
 _voice_analyzer = None
 _video_analyzer = None
 
-_LOCAL_SCAN_HISTORY: dict[str, dict] = {}
+import json
+import os
+
+_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+_SCAN_STORE_PATH = os.path.join(_DATA_DIR, "scan_history_store.json")
+
+
+def _load_persisted_scans() -> dict[str, dict]:
+    try:
+        if os.path.exists(_SCAN_STORE_PATH):
+            with open(_SCAN_STORE_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.debug(f"Scan history load skipped: {e}")
+    return {}
+
+
+_LOCAL_SCAN_HISTORY: dict[str, dict] = _load_persisted_scans()
+
+
+def _save_scan_to_local_store(scan_id: str, scan_doc: dict):
+    _LOCAL_SCAN_HISTORY[scan_id] = scan_doc
+    if len(_LOCAL_SCAN_HISTORY) > 500:
+        oldest = next(iter(_LOCAL_SCAN_HISTORY))
+        _LOCAL_SCAN_HISTORY.pop(oldest, None)
+    try:
+        os.makedirs(_DATA_DIR, exist_ok=True)
+        # Store clean json-serializable copy without datetimes
+        safe_copy = {}
+        for s_id, s_d in list(_LOCAL_SCAN_HISTORY.items())[-200:]:
+            safe_d = dict(s_d)
+            if "created_at" in safe_d and hasattr(safe_d["created_at"], "isoformat"):
+                safe_d["created_at"] = safe_d["created_at"].isoformat()
+            safe_copy[s_id] = safe_d
+        tmp_p = f"{_SCAN_STORE_PATH}.tmp"
+        with open(tmp_p, "w", encoding="utf-8") as f:
+            json.dump(safe_copy, f)
+        os.replace(tmp_p, _SCAN_STORE_PATH)
+    except Exception as e:
+        logger.debug(f"Scan history save to disk skipped: {e}")
 
 
 def get_gemini_svc():
@@ -369,10 +408,7 @@ async def _scan_content_impl(
         "created_at": now
     }
 
-    _LOCAL_SCAN_HISTORY[scan_id] = scan_doc
-    if len(_LOCAL_SCAN_HISTORY) > 500:
-        oldest = next(iter(_LOCAL_SCAN_HISTORY))
-        _LOCAL_SCAN_HISTORY.pop(oldest, None)
+    _save_scan_to_local_store(scan_id, scan_doc)
 
     try:
         from app.services.analytics_service import get_analytics_service, invalidate_dashboard_cache

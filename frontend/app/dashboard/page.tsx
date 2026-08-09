@@ -17,7 +17,14 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const res = await getDashboardStats();
-      setStats(res);
+      if (res) {
+        setStats(res);
+        try {
+          localStorage.setItem("pramaan_dashboard_stats", JSON.stringify(res));
+        } catch {
+          // ignore localStorage write errors
+        }
+      }
       setError(false);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err) {
@@ -29,6 +36,18 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    try {
+      const cached = localStorage.getItem("pramaan_dashboard_stats");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === "object" && typeof parsed.total_scans === "number") {
+          setStats(parsed);
+        }
+      }
+    } catch {
+      // ignore localStorage read errors
+    }
+
     fetchStats();
     const interval = setInterval(fetchStats, 10_000);
     return () => clearInterval(interval);

@@ -1,0 +1,20 @@
+{
+  "total_scans": 286,
+  "total_fakes_detected": 48,
+  "total_seals_verified": 140,
+  "total_seals_issued": 138,
+  "reports_generated": 30,
+  "threat_distribution": {
+    "text": 144,
+    "audio": 38,
+    "video": 61,
+    "image": 43
+  },
+  "top_flagged_domains": {
+    "sbi-kyc-update.top": 19,
+    "zerodha-ipo-allot.com": 14,
+    "hdfc-secure-verify.net": 9,
+    "groww-returns-guarantee.info": 7,
+    "angelone-algo-trader.vip": 4
+  }
+}
